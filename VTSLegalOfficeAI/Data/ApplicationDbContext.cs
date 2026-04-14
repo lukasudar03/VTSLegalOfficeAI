@@ -34,6 +34,9 @@ namespace VTSLegalOfficeAI.Data
                 entity.Property(x => x.Status)
                     .IsRequired()
                     .HasMaxLength(50);
+
+                entity.Property(x => x.ExtractedText)
+                    .HasColumnType("text");
             });
 
             modelBuilder.Entity<DocumentChunk>(entity =>

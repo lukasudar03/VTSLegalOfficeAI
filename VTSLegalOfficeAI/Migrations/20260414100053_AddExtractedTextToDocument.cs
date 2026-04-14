@@ -1,12 +1,13 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Pgvector;
 
 #nullable disable
 
 namespace VTSLegalOfficeAI.Migrations
 {
     /// <inheritdoc />
-    public partial class AddDocumentEntity : Migration
+    public partial class AddExtractedTextToDocument : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -22,6 +23,7 @@ namespace VTSLegalOfficeAI.Migrations
                     FileSizeBytes = table.Column<long>(type: "bigint", nullable: false),
                     TotalPages = table.Column<int>(type: "integer", nullable: true),
                     Status = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
+                    ExtractedText = table.Column<string>(type: "text", nullable: true),
                     UploadedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
@@ -29,33 +31,44 @@ namespace VTSLegalOfficeAI.Migrations
                     table.PrimaryKey("PK_Documents", x => x.Id);
                 });
 
+            migrationBuilder.CreateTable(
+                name: "DocumentChunks",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    DocumentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ChunkIndex = table.Column<int>(type: "integer", nullable: false),
+                    Content = table.Column<string>(type: "text", nullable: false),
+                    PageFrom = table.Column<int>(type: "integer", nullable: false),
+                    PageTo = table.Column<int>(type: "integer", nullable: false),
+                    Embedding = table.Column<Vector>(type: "vector(768)", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_DocumentChunks", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_DocumentChunks_Documents_DocumentId",
+                        column: x => x.DocumentId,
+                        principalTable: "Documents",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
             migrationBuilder.CreateIndex(
                 name: "IX_DocumentChunks_DocumentId",
                 table: "DocumentChunks",
                 column: "DocumentId");
-
-            migrationBuilder.AddForeignKey(
-                name: "FK_DocumentChunks_Documents_DocumentId",
-                table: "DocumentChunks",
-                column: "DocumentId",
-                principalTable: "Documents",
-                principalColumn: "Id",
-                onDelete: ReferentialAction.Cascade);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropForeignKey(
-                name: "FK_DocumentChunks_Documents_DocumentId",
-                table: "DocumentChunks");
+            migrationBuilder.DropTable(
+                name: "DocumentChunks");
 
             migrationBuilder.DropTable(
                 name: "Documents");
-
-            migrationBuilder.DropIndex(
-                name: "IX_DocumentChunks_DocumentId",
-                table: "DocumentChunks");
         }
     }
 }

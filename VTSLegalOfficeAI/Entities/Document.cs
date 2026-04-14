@@ -11,6 +11,7 @@ namespace VTSLegalOfficeAI.Entities
         public long FileSizeBytes { get; set; }
         public int? TotalPages { get; set; }
         public string Status { get; set; } = "Uploaded";
+        public string? ExtractedText { get; set; }
         public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
 
         [JsonIgnore]

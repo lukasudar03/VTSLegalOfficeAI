@@ -13,8 +13,8 @@ using VTSLegalOfficeAI.Data;
 namespace VTSLegalOfficeAI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260414052819_AddDocumentEntity")]
-    partial class AddDocumentEntity
+    [Migration("20260414100053_AddExtractedTextToDocument")]
+    partial class AddExtractedTextToDocument
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -31,6 +31,9 @@ namespace VTSLegalOfficeAI.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ExtractedText")
+                        .HasColumnType("text");
 
                     b.Property<string>("FileName")
                         .IsRequired()

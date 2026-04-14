@@ -8,5 +8,6 @@ namespace VTSLegalOfficeAI.Services.Interfaces
         Task<Document> UploadAsync(IFormFile file);
         Task<List<Document>> GetAllAsync();
         Task<Document?> GetByIdAsync(Guid id);
+        Task ProcessDocumentAsync(Guid documentId);
     }
 }
