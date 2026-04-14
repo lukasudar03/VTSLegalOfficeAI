@@ -1,0 +1,6 @@
+@VTSLegalOfficeAI_HostAddress = http://localhost:5211
+
+GET {{VTSLegalOfficeAI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
