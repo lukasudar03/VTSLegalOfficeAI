@@ -9,11 +9,13 @@ namespace VTSLegalOfficeAI.Services.Implementations
     {
         private readonly ApplicationDbContext _context;
         private readonly IWebHostEnvironment _environment;
+        private readonly IPdfTextExtractorService _pdfTextExtractorService;
 
-        public DocumentService(ApplicationDbContext context, IWebHostEnvironment environment)
+        public DocumentService(ApplicationDbContext context, IWebHostEnvironment environment, IPdfTextExtractorService pdfTextExtractorService)
         {
             _context = context;
             _environment = environment;
+            _pdfTextExtractorService = pdfTextExtractorService;
         }
 
         public async Task<Document> UploadAsync(IFormFile file)
@@ -66,6 +68,28 @@ namespace VTSLegalOfficeAI.Services.Implementations
         {
             return await _context.Documents
                 .FirstOrDefaultAsync(x => x.Id == id);
+        }
+
+        public async Task ProcessDocumentAsync(Guid documentId)
+        {
+            var document = await _context.Documents.FindAsync(documentId);
+
+            if (document == null)
+                throw new Exception("Document not found.");
+
+            if (!File.Exists(document.FilePath))
+                throw new Exception("Physical file not found.");
+
+            document.Status = "Processing";
+            await _context.SaveChangesAsync();
+
+            var result = _pdfTextExtractorService.ExtractText(document.FilePath);
+
+            document.ExtractedText = result.Text;
+            document.TotalPages = result.TotalPages;
+            document.Status = "Processed";
+
+            await _context.SaveChangesAsync();
         }
     }
 }

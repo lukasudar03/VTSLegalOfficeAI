@@ -49,5 +49,12 @@ namespace VTSLegalOfficeAI.Controllers
 
             return Ok(document);
         }
+
+        [HttpPost("{id:guid}/process")]
+        public async Task<IActionResult> Process(Guid id)
+        {
+            await _documentService.ProcessDocumentAsync(id);
+            return Ok(new { Message = "Document processed successfully." });
+        }
     }
 }
