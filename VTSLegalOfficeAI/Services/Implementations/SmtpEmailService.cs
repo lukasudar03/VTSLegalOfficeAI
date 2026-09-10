@@ -4,16 +4,19 @@ using Microsoft.Extensions.Options;
 using MimeKit;
 using VTSLegalOfficeAI.Options;
 using VTSLegalOfficeAI.Services.Interfaces;
+using VTSLegalOfficeAI.Services.Models;
 
 namespace VTSLegalOfficeAI.Services.Implementations
 {
     public class SmtpEmailService : IEmailService
     {
         private readonly SmtpOptions _options;
+        private readonly IRazorViewToStringRenderer _viewRenderer;
 
-        public SmtpEmailService(IOptions<SmtpOptions> options)
+        public SmtpEmailService(IOptions<SmtpOptions> options, IRazorViewToStringRenderer viewRenderer)
         {
             _options = options.Value;
+            _viewRenderer = viewRenderer;
         }
 
         public async Task SendVerificationEmailAsync(string toEmail, string username, string verificationLink, CancellationToken cancellationToken = default)
@@ -23,15 +26,22 @@ namespace VTSLegalOfficeAI.Services.Implementations
             message.To.Add(MailboxAddress.Parse(toEmail));
             message.Subject = "Aktivacija naloga — VTS Legal Office AI";
 
-            message.Body = new TextPart("plain")
+            var htmlBody = await _viewRenderer.RenderViewToStringAsync(
+                "/Views/Emails/VerificationEmail.cshtml",
+                new VerificationEmailModel { Username = username, VerificationLink = verificationLink });
+
+            var builder = new BodyBuilder
             {
-                Text =
+                TextBody =
                     $"Zdravo {username},\n\n" +
                     "Kreiran je nalog za tebe u VTS Legal Office AI aplikaciji.\n" +
                     "Klikni na link ispod da aktiviraš nalog i možeš da se uloguješ:\n\n" +
                     $"{verificationLink}\n\n" +
                     "Ako nisi očekivao ovaj email, slobodno ga ignoriši.",
+                HtmlBody = htmlBody,
             };
+
+            message.Body = builder.ToMessageBody();
 
             using var client = new SmtpClient
             {
