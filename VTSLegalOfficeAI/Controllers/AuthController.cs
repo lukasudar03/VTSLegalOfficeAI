@@ -111,6 +111,39 @@ namespace VTSLegalOfficeAI.Controllers
             return Ok(new { Message = "Email je uspešno verifikovan. Sada možeš da se uloguješ." });
         }
 
+        [HttpPost("forgot-password")]
+        public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequestDto request)
+        {
+            var user = await _userService.RequestPasswordResetAsync(request.Email);
+
+            if (user != null)
+            {
+                try
+                {
+                    var resetLink = $"{_frontendOptions.BaseUrl}/reset-password?token={user.PasswordResetToken}";
+                    await _emailService.SendPasswordResetEmailAsync(user.Email, user.Username, resetLink);
+                }
+                catch
+                {
+                    // Swallow so a delivery failure doesn't reveal whether the email exists.
+                }
+            }
+
+            // Always the same response, regardless of whether the email exists, so this
+            // endpoint can't be used to enumerate registered accounts.
+            return Ok(new { Message = "Ako nalog sa tim email-om postoji, poslat je link za resetovanje lozinke." });
+        }
+
+        [HttpPost("reset-password")]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequestDto request)
+        {
+            var success = await _userService.ResetPasswordAsync(request.Token, request.NewPassword);
+            if (!success)
+                return BadRequest(new { Message = "Link za resetovanje lozinke je nevažeći ili je istekao." });
+
+            return Ok(new { Message = "Lozinka je uspešno promenjena. Sada možeš da se uloguješ." });
+        }
+
         [HttpGet("users")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetUsers()
