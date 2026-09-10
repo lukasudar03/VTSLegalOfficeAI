@@ -65,6 +65,13 @@ namespace VTSLegalOfficeAI.Controllers
             return Ok(new { Message = "Document processed successfully." });
         }
 
+        [HttpDelete("{id:guid}")]
+        public async Task<IActionResult> Delete(Guid id)
+        {
+            await _documentService.DeleteDocumentAsync(id, CurrentUserId);
+            return NoContent();
+        }
+
         [HttpPost("{id:guid}/ask")]
         public async Task<IActionResult> Ask(Guid id, [FromBody] AskQuestionDto request)
         {
