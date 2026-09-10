@@ -8,5 +8,6 @@ namespace VTSLegalOfficeAI.Services.Interfaces
         Task<User?> ValidateCredentialsAsync(string username, string password);
         Task<List<User>> GetAllAsync();
         Task<bool> VerifyEmailAsync(string token);
+        Task DeleteUserAsync(Guid id);
     }
 }

@@ -68,8 +68,17 @@ namespace VTSLegalOfficeAI.Controllers
 
             var user = await _userService.CreateUserAsync(request.Username, request.Email, request.Password);
 
-            var verificationLink = $"{_frontendOptions.BaseUrl}/verify-email?token={user.EmailVerificationToken}";
-            await _emailService.SendVerificationEmailAsync(user.Email, user.Username, verificationLink);
+            try
+            {
+                var verificationLink = $"{_frontendOptions.BaseUrl}/verify-email?token={user.EmailVerificationToken}";
+                await _emailService.SendVerificationEmailAsync(user.Email, user.Username, verificationLink);
+            }
+            catch
+            {
+                // Don't leave an unverifiable account behind if the email never went out.
+                await _userService.DeleteUserAsync(user.Id);
+                throw;
+            }
 
             return Ok(new UserResponseDto
             {
