@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using VTSLegalOfficeAI.Data;
@@ -8,6 +9,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
 {
     public class UserService : IUserService
     {
+        private static readonly TimeSpan VerificationTokenLifetime = TimeSpan.FromHours(48);
+
         private readonly ApplicationDbContext _context;
         private readonly IPasswordHasher<User> _passwordHasher;
 
@@ -17,11 +20,15 @@ namespace VTSLegalOfficeAI.Services.Implementations
             _passwordHasher = passwordHasher;
         }
 
-        public async Task<User> CreateUserAsync(string username, string password)
+        public async Task<User> CreateUserAsync(string username, string email, string password)
         {
             var usernameExists = await _context.Users.AnyAsync(u => u.Username == username);
             if (usernameExists)
                 throw new Exception("Username is already taken.");
+
+            var emailExists = await _context.Users.AnyAsync(u => u.Email == email);
+            if (emailExists)
+                throw new Exception("Email is already in use.");
 
             var isFirstUser = !await _context.Users.AnyAsync();
 
@@ -29,7 +36,11 @@ namespace VTSLegalOfficeAI.Services.Implementations
             {
                 Id = Guid.NewGuid(),
                 Username = username,
+                Email = email,
                 IsAdmin = isFirstUser,
+                EmailVerified = false,
+                EmailVerificationToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)),
+                EmailVerificationTokenExpiresAt = DateTime.UtcNow.Add(VerificationTokenLifetime),
                 CreatedAt = DateTime.UtcNow,
             };
 
@@ -57,6 +68,24 @@ namespace VTSLegalOfficeAI.Services.Implementations
             return await _context.Users
                 .OrderBy(u => u.CreatedAt)
                 .ToListAsync();
+        }
+
+        public async Task<bool> VerifyEmailAsync(string token)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u =>
+                u.EmailVerificationToken == token &&
+                u.EmailVerificationTokenExpiresAt != null &&
+                u.EmailVerificationTokenExpiresAt > DateTime.UtcNow);
+
+            if (user == null)
+                return false;
+
+            user.EmailVerified = true;
+            user.EmailVerificationToken = null;
+            user.EmailVerificationTokenExpiresAt = null;
+
+            await _context.SaveChangesAsync();
+            return true;
         }
     }
 }
