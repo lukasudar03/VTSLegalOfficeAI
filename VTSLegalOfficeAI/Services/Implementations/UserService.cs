@@ -23,10 +23,13 @@ namespace VTSLegalOfficeAI.Services.Implementations
             if (usernameExists)
                 throw new Exception("Username is already taken.");
 
+            var isFirstUser = !await _context.Users.AnyAsync();
+
             var user = new User
             {
                 Id = Guid.NewGuid(),
                 Username = username,
+                IsAdmin = isFirstUser,
                 CreatedAt = DateTime.UtcNow,
             };
 
@@ -47,6 +50,13 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var result = _passwordHasher.VerifyHashedPassword(user, user.PasswordHash, password);
 
             return result == PasswordVerificationResult.Failed ? null : user;
+        }
+
+        public async Task<List<User>> GetAllAsync()
+        {
+            return await _context.Users
+                .OrderBy(u => u.CreatedAt)
+                .ToListAsync();
         }
     }
 }

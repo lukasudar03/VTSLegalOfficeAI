@@ -6,5 +6,6 @@ namespace VTSLegalOfficeAI.Services.Interfaces
     {
         Task<User> CreateUserAsync(string username, string password);
         Task<User?> ValidateCredentialsAsync(string username, string password);
+        Task<List<User>> GetAllAsync();
     }
 }
