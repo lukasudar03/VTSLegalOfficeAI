@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using VTSLegalOfficeAI.DTOs.Auth;
@@ -37,14 +38,21 @@ namespace VTSLegalOfficeAI.Controllers
                 Token = token,
                 ExpiresAt = expiresAt,
                 Username = user.Username,
+                IsAdmin = user.IsAdmin,
             });
         }
 
+        // Creating a user requires either the shared bootstrap admin key (used the very
+        // first time, before any admin account exists) or a valid JWT for an existing
+        // admin user. This keeps account creation out of public reach without a
+        // chicken-and-egg problem for the first admin account.
         [HttpPost("users")]
         public async Task<IActionResult> CreateUser([FromBody] CreateUserRequestDto request, [FromHeader(Name = "X-Admin-Key")] string? adminKey)
         {
-            if (string.IsNullOrEmpty(_adminOptions.AdminKey) || !IsAdminKeyValid(adminKey))
-                return Unauthorized(new { Message = "Neispravan admin ključ." });
+            var isAuthenticatedAdmin = User.Identity?.IsAuthenticated == true && User.IsInRole("Admin");
+
+            if (!isAuthenticatedAdmin && !IsAdminKeyValid(adminKey))
+                return Unauthorized(new { Message = "Nemaš dozvolu da kreiraš korisnike." });
 
             var user = await _userService.CreateUserAsync(request.Username, request.Password);
 
@@ -52,13 +60,29 @@ namespace VTSLegalOfficeAI.Controllers
             {
                 Id = user.Id,
                 Username = user.Username,
+                IsAdmin = user.IsAdmin,
                 CreatedAt = user.CreatedAt,
             });
         }
 
+        [HttpGet("users")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetUsers()
+        {
+            var users = await _userService.GetAllAsync();
+
+            return Ok(users.Select(u => new UserResponseDto
+            {
+                Id = u.Id,
+                Username = u.Username,
+                IsAdmin = u.IsAdmin,
+                CreatedAt = u.CreatedAt,
+            }));
+        }
+
         private bool IsAdminKeyValid(string? providedKey)
         {
-            if (string.IsNullOrEmpty(providedKey))
+            if (string.IsNullOrEmpty(_adminOptions.AdminKey) || string.IsNullOrEmpty(providedKey))
                 return false;
 
             var expected = Encoding.UTF8.GetBytes(_adminOptions.AdminKey);
