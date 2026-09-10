@@ -1,7 +1,9 @@
-﻿namespace VTSLegalOfficeAI.Services.Interfaces
+using VTSLegalOfficeAI.Services.Models;
+
+namespace VTSLegalOfficeAI.Services.Interfaces
 {
     public interface IPdfTextExtractorService
     {
-        (string Text, int TotalPages) ExtractText(string filePath);
+        PdfExtractionResult ExtractText(string filePath);
     }
 }

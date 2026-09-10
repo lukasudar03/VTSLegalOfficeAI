@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
+using Pgvector;
 using VTSLegalOfficeAI.Data;
 using VTSLegalOfficeAI.Entities;
 using VTSLegalOfficeAI.Services.Interfaces;
@@ -10,12 +11,21 @@ namespace VTSLegalOfficeAI.Services.Implementations
         private readonly ApplicationDbContext _context;
         private readonly IWebHostEnvironment _environment;
         private readonly IPdfTextExtractorService _pdfTextExtractorService;
+        private readonly ITextChunkingService _textChunkingService;
+        private readonly IEmbeddingService _embeddingService;
 
-        public DocumentService(ApplicationDbContext context, IWebHostEnvironment environment, IPdfTextExtractorService pdfTextExtractorService)
+        public DocumentService(
+            ApplicationDbContext context,
+            IWebHostEnvironment environment,
+            IPdfTextExtractorService pdfTextExtractorService,
+            ITextChunkingService textChunkingService,
+            IEmbeddingService embeddingService)
         {
             _context = context;
             _environment = environment;
             _pdfTextExtractorService = pdfTextExtractorService;
+            _textChunkingService = textChunkingService;
+            _embeddingService = embeddingService;
         }
 
         public async Task<Document> UploadAsync(IFormFile file)
@@ -83,10 +93,33 @@ namespace VTSLegalOfficeAI.Services.Implementations
             document.Status = "Processing";
             await _context.SaveChangesAsync();
 
-            var result = _pdfTextExtractorService.ExtractText(document.FilePath);
+            var extraction = _pdfTextExtractorService.ExtractText(document.FilePath);
 
-            document.ExtractedText = result.Text;
-            document.TotalPages = result.TotalPages;
+            document.ExtractedText = extraction.Text;
+            document.TotalPages = extraction.TotalPages;
+
+            var textChunks = _textChunkingService.ChunkPages(extraction.Pages);
+
+            if (textChunks.Count > 0)
+            {
+                var embeddings = await _embeddingService.GenerateEmbeddingsAsync(
+                    textChunks.Select(c => c.Content).ToList());
+
+                var documentChunks = textChunks.Select((chunk, i) => new DocumentChunk
+                {
+                    Id = Guid.NewGuid(),
+                    DocumentId = document.Id,
+                    ChunkIndex = chunk.ChunkIndex,
+                    Content = chunk.Content,
+                    PageFrom = chunk.PageFrom,
+                    PageTo = chunk.PageTo,
+                    Embedding = new Vector(embeddings[i]),
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                _context.DocumentChunks.AddRange(documentChunks);
+            }
+
             document.Status = "Processed";
 
             await _context.SaveChangesAsync();
