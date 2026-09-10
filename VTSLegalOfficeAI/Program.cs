@@ -54,9 +54,13 @@ if (string.IsNullOrWhiteSpace(jwtOptions.SecretKey))
         "Jwt:SecretKey is not configured. Set it via 'dotnet user-secrets set Jwt:SecretKey \"...\"' for local development.");
 }
 
+builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
+builder.Services.Configure<FrontendOptions>(builder.Configuration.GetSection(FrontendOptions.SectionName));
+
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
