@@ -144,6 +144,19 @@ namespace VTSLegalOfficeAI.Controllers
             return Ok(new { Message = "Lozinka je uspešno promenjena. Sada možeš da se uloguješ." });
         }
 
+        [HttpPost("change-password")]
+        [Authorize]
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequestDto request)
+        {
+            var currentUserId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+            var success = await _userService.ChangePasswordAsync(currentUserId, request.CurrentPassword, request.NewPassword);
+            if (!success)
+                return BadRequest(new { Message = "Trenutna lozinka nije ispravna." });
+
+            return Ok(new { Message = "Lozinka je uspešno promenjena." });
+        }
+
         [HttpGet("users")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetUsers()
