@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using VTSLegalOfficeAI.DTOs.Auth;
+using VTSLegalOfficeAI.Entities;
 using VTSLegalOfficeAI.Options;
 using VTSLegalOfficeAI.Services.Interfaces;
 
@@ -15,13 +16,22 @@ namespace VTSLegalOfficeAI.Controllers
     {
         private readonly IUserService _userService;
         private readonly IJwtTokenService _jwtTokenService;
+        private readonly IEmailService _emailService;
         private readonly AdminOptions _adminOptions;
+        private readonly FrontendOptions _frontendOptions;
 
-        public AuthController(IUserService userService, IJwtTokenService jwtTokenService, IOptions<AdminOptions> adminOptions)
+        public AuthController(
+            IUserService userService,
+            IJwtTokenService jwtTokenService,
+            IEmailService emailService,
+            IOptions<AdminOptions> adminOptions,
+            IOptions<FrontendOptions> frontendOptions)
         {
             _userService = userService;
             _jwtTokenService = jwtTokenService;
+            _emailService = emailService;
             _adminOptions = adminOptions.Value;
+            _frontendOptions = frontendOptions.Value;
         }
 
         [HttpPost("login")]
@@ -30,6 +40,9 @@ namespace VTSLegalOfficeAI.Controllers
             var user = await _userService.ValidateCredentialsAsync(request.Username, request.Password);
             if (user == null)
                 return Unauthorized(new { Message = "Neispravno korisničko ime ili lozinka." });
+
+            if (!user.EmailVerified)
+                return Unauthorized(new { Message = "Nalog nije verifikovan. Proveri email i klikni na link za aktivaciju." });
 
             var (token, expiresAt) = _jwtTokenService.GenerateToken(user);
 
@@ -54,15 +67,47 @@ namespace VTSLegalOfficeAI.Controllers
             if (!isAuthenticatedAdmin && !IsAdminKeyValid(adminKey))
                 return Unauthorized(new { Message = "Nemaš dozvolu da kreiraš korisnike." });
 
-            var user = await _userService.CreateUserAsync(request.Username, request.Password);
+            User user;
+            try
+            {
+                user = await _userService.CreateUserAsync(request.Username, request.Email, request.Password);
+            }
+            catch (Exception ex)
+            {
+                return Conflict(new { Message = ex.Message });
+            }
+
+            try
+            {
+                var verificationLink = $"{_frontendOptions.BaseUrl}/verify-email?token={user.EmailVerificationToken}";
+                await _emailService.SendVerificationEmailAsync(user.Email, user.Username, verificationLink);
+            }
+            catch
+            {
+                // Don't leave an unverifiable account behind if the email never went out.
+                await _userService.DeleteUserAsync(user.Id);
+                return StatusCode(502, new { Message = "Korisnik nije kreiran jer slanje email-a nije uspelo. Proveri SMTP podešavanja i pokušaj ponovo." });
+            }
 
             return Ok(new UserResponseDto
             {
                 Id = user.Id,
                 Username = user.Username,
+                Email = user.Email,
                 IsAdmin = user.IsAdmin,
+                EmailVerified = user.EmailVerified,
                 CreatedAt = user.CreatedAt,
             });
+        }
+
+        [HttpPost("verify-email")]
+        public async Task<IActionResult> VerifyEmail([FromBody] VerifyEmailRequestDto request)
+        {
+            var verified = await _userService.VerifyEmailAsync(request.Token);
+            if (!verified)
+                return BadRequest(new { Message = "Link za verifikaciju je nevažeći ili je istekao." });
+
+            return Ok(new { Message = "Email je uspešno verifikovan. Sada možeš da se uloguješ." });
         }
 
         [HttpGet("users")]
@@ -75,7 +120,9 @@ namespace VTSLegalOfficeAI.Controllers
             {
                 Id = u.Id,
                 Username = u.Username,
+                Email = u.Email,
                 IsAdmin = u.IsAdmin,
+                EmailVerified = u.EmailVerified,
                 CreatedAt = u.CreatedAt,
             }));
         }

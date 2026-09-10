@@ -27,6 +27,13 @@ namespace VTSLegalOfficeAI.Data
                 entity.HasIndex(x => x.Username)
                     .IsUnique();
 
+                entity.Property(x => x.Email)
+                    .IsRequired()
+                    .HasMaxLength(320);
+
+                entity.HasIndex(x => x.Email)
+                    .IsUnique();
+
                 entity.Property(x => x.PasswordHash)
                     .IsRequired();
             });
