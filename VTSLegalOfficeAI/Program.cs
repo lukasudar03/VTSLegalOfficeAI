@@ -14,7 +14,12 @@ using VTSLegalOfficeAI.Services.Interfaces;
 var builder = WebApplication.CreateBuilder(args);
 
 // Services
-builder.Services.AddControllers();
+var mvcBuilder = builder.Services.AddControllersWithViews();
+if (builder.Environment.IsDevelopment())
+{
+    // Lets edits to .cshtml email templates show up without a full rebuild.
+    mvcBuilder.AddRazorRuntimeCompilation();
+}
 
 // Swagger (OVO JE KLJUČNO)
 builder.Services.AddEndpointsApiExplorer();
@@ -61,6 +66,7 @@ builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
+builder.Services.AddScoped<IRazorViewToStringRenderer, RazorViewToStringRenderer>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
