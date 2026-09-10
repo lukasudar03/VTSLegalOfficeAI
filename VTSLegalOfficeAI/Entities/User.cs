@@ -12,6 +12,8 @@ namespace VTSLegalOfficeAI.Entities
         public bool EmailVerified { get; set; }
         public string? EmailVerificationToken { get; set; }
         public DateTime? EmailVerificationTokenExpiresAt { get; set; }
+        public string? PasswordResetToken { get; set; }
+        public DateTime? PasswordResetTokenExpiresAt { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         [JsonIgnore]

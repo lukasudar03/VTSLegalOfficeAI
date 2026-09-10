@@ -10,6 +10,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
     public class UserService : IUserService
     {
         private static readonly TimeSpan VerificationTokenLifetime = TimeSpan.FromHours(48);
+        private static readonly TimeSpan PasswordResetTokenLifetime = TimeSpan.FromHours(1);
 
         private readonly ApplicationDbContext _context;
         private readonly IPasswordHasher<User> _passwordHasher;
@@ -117,6 +118,37 @@ namespace VTSLegalOfficeAI.Services.Implementations
 
             _context.Users.Remove(user);
             await _context.SaveChangesAsync();
+        }
+
+        public async Task<User?> RequestPasswordResetAsync(string email)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+            if (user == null)
+                return null;
+
+            user.PasswordResetToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+            user.PasswordResetTokenExpiresAt = DateTime.UtcNow.Add(PasswordResetTokenLifetime);
+
+            await _context.SaveChangesAsync();
+            return user;
+        }
+
+        public async Task<bool> ResetPasswordAsync(string token, string newPassword)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u =>
+                u.PasswordResetToken == token &&
+                u.PasswordResetTokenExpiresAt != null &&
+                u.PasswordResetTokenExpiresAt > DateTime.UtcNow);
+
+            if (user == null)
+                return false;
+
+            user.PasswordHash = _passwordHasher.HashPassword(user, newPassword);
+            user.PasswordResetToken = null;
+            user.PasswordResetTokenExpiresAt = null;
+
+            await _context.SaveChangesAsync();
+            return true;
         }
     }
 }
