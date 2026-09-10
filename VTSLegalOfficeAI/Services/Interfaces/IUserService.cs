@@ -10,5 +10,7 @@ namespace VTSLegalOfficeAI.Services.Interfaces
         Task<bool> VerifyEmailAsync(string token);
         Task<User> UpdateUserAsync(Guid id, string username, string email);
         Task DeleteUserAsync(Guid id);
+        Task<User?> RequestPasswordResetAsync(string email);
+        Task<bool> ResetPasswordAsync(string token, string newPassword);
     }
 }
