@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using VTSLegalOfficeAI.Entities;
 
 namespace VTSLegalOfficeAI.Data
@@ -10,11 +10,27 @@ namespace VTSLegalOfficeAI.Data
         {
         }
 
+        public DbSet<User> Users { get; set; }
         public DbSet<Document> Documents { get; set; }
         public DbSet<DocumentChunk> DocumentChunks { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            modelBuilder.Entity<User>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+
+                entity.Property(x => x.Username)
+                    .IsRequired()
+                    .HasMaxLength(100);
+
+                entity.HasIndex(x => x.Username)
+                    .IsUnique();
+
+                entity.Property(x => x.PasswordHash)
+                    .IsRequired();
+            });
+
             modelBuilder.Entity<Document>(entity =>
             {
                 entity.HasKey(x => x.Id);
@@ -37,6 +53,11 @@ namespace VTSLegalOfficeAI.Data
 
                 entity.Property(x => x.ExtractedText)
                     .HasColumnType("text");
+
+                entity.HasOne(x => x.User)
+                    .WithMany(x => x.Documents)
+                    .HasForeignKey(x => x.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
 
             modelBuilder.Entity<DocumentChunk>(entity =>

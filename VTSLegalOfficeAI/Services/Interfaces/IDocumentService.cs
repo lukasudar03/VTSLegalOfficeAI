@@ -1,13 +1,13 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using VTSLegalOfficeAI.Entities;
 
 namespace VTSLegalOfficeAI.Services.Interfaces
 {
     public interface IDocumentService
     {
-        Task<Document> UploadAsync(IFormFile file);
-        Task<List<Document>> GetAllAsync();
-        Task<Document?> GetByIdAsync(Guid id);
-        Task ProcessDocumentAsync(Guid documentId);
+        Task<Document> UploadAsync(IFormFile file, Guid userId);
+        Task<List<Document>> GetAllAsync(Guid userId);
+        Task<Document?> GetByIdAsync(Guid id, Guid userId);
+        Task ProcessDocumentAsync(Guid documentId, Guid userId);
     }
 }
