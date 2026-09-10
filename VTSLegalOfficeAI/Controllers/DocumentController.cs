@@ -72,6 +72,20 @@ namespace VTSLegalOfficeAI.Controllers
             return NoContent();
         }
 
+        [HttpGet("{id:guid}/file")]
+        public async Task<IActionResult> GetFile(Guid id)
+        {
+            var document = await _documentService.GetByIdAsync(id, CurrentUserId);
+            if (document == null)
+                return NotFound();
+
+            if (!System.IO.File.Exists(document.FilePath))
+                return NotFound();
+
+            var stream = System.IO.File.OpenRead(document.FilePath);
+            return File(stream, "application/pdf");
+        }
+
         [HttpPost("{id:guid}/ask")]
         public async Task<IActionResult> Ask(Guid id, [FromBody] AskQuestionDto request)
         {
