@@ -150,5 +150,21 @@ namespace VTSLegalOfficeAI.Services.Implementations
             await _context.SaveChangesAsync();
             return true;
         }
+
+        public async Task<bool> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword)
+        {
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null)
+                return false;
+
+            var result = _passwordHasher.VerifyHashedPassword(user, user.PasswordHash, currentPassword);
+            if (result == PasswordVerificationResult.Failed)
+                return false;
+
+            user.PasswordHash = _passwordHasher.HashPassword(user, newPassword);
+
+            await _context.SaveChangesAsync();
+            return true;
+        }
     }
 }
