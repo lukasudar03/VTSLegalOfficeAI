@@ -100,6 +100,8 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // Pipeline
+app.UseMiddleware<VTSLegalOfficeAI.Middleware.ExceptionHandlingMiddleware>();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
