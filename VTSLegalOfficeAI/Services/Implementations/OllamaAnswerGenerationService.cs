@@ -34,7 +34,12 @@ namespace VTSLegalOfficeAI.Services.Implementations
             };
 
             var response = await client.PostAsJsonAsync("/api/chat", requestBody, cancellationToken);
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                throw new InvalidOperationException(
+                    $"Ollama /api/chat returned {(int)response.StatusCode}: {errorBody}");
+            }
 
             var result = await response.Content.ReadFromJsonAsync<OllamaChatResponse>(cancellationToken: cancellationToken);
 
