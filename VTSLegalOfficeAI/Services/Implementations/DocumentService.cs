@@ -127,5 +127,20 @@ namespace VTSLegalOfficeAI.Services.Implementations
 
             await _context.SaveChangesAsync();
         }
+
+        public async Task DeleteDocumentAsync(Guid documentId, Guid userId)
+        {
+            var document = await _context.Documents
+                .FirstOrDefaultAsync(x => x.Id == documentId && x.UserId == userId);
+
+            if (document == null)
+                throw new Exception("Document not found.");
+
+            if (File.Exists(document.FilePath))
+                File.Delete(document.FilePath);
+
+            _context.Documents.Remove(document);
+            await _context.SaveChangesAsync();
+        }
     }
 }

@@ -9,5 +9,6 @@ namespace VTSLegalOfficeAI.Services.Interfaces
         Task<List<Document>> GetAllAsync(Guid userId);
         Task<Document?> GetByIdAsync(Guid id, Guid userId);
         Task ProcessDocumentAsync(Guid documentId, Guid userId);
+        Task DeleteDocumentAsync(Guid documentId, Guid userId);
     }
 }
