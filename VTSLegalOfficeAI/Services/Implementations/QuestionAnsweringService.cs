@@ -25,12 +25,13 @@ namespace VTSLegalOfficeAI.Services.Implementations
             _answerGenerationService = answerGenerationService;
         }
 
-        public async Task<AskAnswerResult> AskAsync(Guid documentId, string question, CancellationToken cancellationToken = default)
+        public async Task<AskAnswerResult> AskAsync(Guid documentId, Guid userId, string question, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(question))
                 throw new Exception("Question is required.");
 
-            var document = await _context.Documents.FindAsync(new object[] { documentId }, cancellationToken);
+            var document = await _context.Documents
+                .FirstOrDefaultAsync(d => d.Id == documentId && d.UserId == userId, cancellationToken);
             if (document == null)
                 throw new Exception("Document not found.");
 

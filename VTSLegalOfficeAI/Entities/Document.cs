@@ -1,10 +1,11 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 
 namespace VTSLegalOfficeAI.Entities
 {
     public class Document
     {
         public Guid Id { get; set; }
+        public Guid UserId { get; set; }
         public string FileName { get; set; } = string.Empty;
         public string StoredFileName { get; set; } = string.Empty;
         public string FilePath { get; set; } = string.Empty;
@@ -13,6 +14,9 @@ namespace VTSLegalOfficeAI.Entities
         public string Status { get; set; } = "Uploaded";
         public string? ExtractedText { get; set; }
         public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
+
+        [JsonIgnore]
+        public User User { get; set; } = null!;
 
         [JsonIgnore]
         public ICollection<DocumentChunk> Chunks { get; set; } = new List<DocumentChunk>();
