@@ -33,7 +33,14 @@ namespace VTSLegalOfficeAI.Services.Implementations
                     "Ako nisi očekivao ovaj email, slobodno ga ignoriši.",
             };
 
-            using var client = new SmtpClient();
+            using var client = new SmtpClient
+            {
+                // On some networks (notably common on macOS dev machines) the OCSP
+                // revocation check for the server certificate can't complete, which
+                // otherwise fails the TLS handshake even though the certificate itself
+                // is valid. Gmail's SMTP endpoint is trusted, so skip that check.
+                CheckCertificateRevocation = false,
+            };
             await client.ConnectAsync(_options.Host, _options.Port, SecureSocketOptions.StartTls, cancellationToken);
             await client.AuthenticateAsync(_options.Username, _options.Password, cancellationToken);
             await client.SendAsync(message, cancellationToken);
