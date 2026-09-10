@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
@@ -125,6 +126,42 @@ namespace VTSLegalOfficeAI.Controllers
                 EmailVerified = u.EmailVerified,
                 CreatedAt = u.CreatedAt,
             }));
+        }
+
+        [HttpPut("users/{id:guid}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> UpdateUser(Guid id, [FromBody] UpdateUserRequestDto request)
+        {
+            try
+            {
+                var user = await _userService.UpdateUserAsync(id, request.Username, request.Email);
+
+                return Ok(new UserResponseDto
+                {
+                    Id = user.Id,
+                    Username = user.Username,
+                    Email = user.Email,
+                    IsAdmin = user.IsAdmin,
+                    EmailVerified = user.EmailVerified,
+                    CreatedAt = user.CreatedAt,
+                });
+            }
+            catch (Exception ex)
+            {
+                return Conflict(new { Message = ex.Message });
+            }
+        }
+
+        [HttpDelete("users/{id:guid}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> DeleteUser(Guid id)
+        {
+            var currentUserId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            if (id == currentUserId)
+                return BadRequest(new { Message = "Ne možeš obrisati sopstveni nalog." });
+
+            await _userService.DeleteUserAsync(id);
+            return NoContent();
         }
 
         private bool IsAdminKeyValid(string? providedKey)

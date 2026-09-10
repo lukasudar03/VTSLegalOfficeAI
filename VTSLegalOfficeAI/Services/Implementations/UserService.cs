@@ -88,6 +88,27 @@ namespace VTSLegalOfficeAI.Services.Implementations
             return true;
         }
 
+        public async Task<User> UpdateUserAsync(Guid id, string username, string email)
+        {
+            var user = await _context.Users.FindAsync(id);
+            if (user == null)
+                throw new Exception("Korisnik nije pronađen.");
+
+            var usernameTaken = await _context.Users.AnyAsync(u => u.Username == username && u.Id != id);
+            if (usernameTaken)
+                throw new Exception("Korisničko ime je već zauzeto.");
+
+            var emailTaken = await _context.Users.AnyAsync(u => u.Email == email && u.Id != id);
+            if (emailTaken)
+                throw new Exception("Email adresa je već u upotrebi.");
+
+            user.Username = username;
+            user.Email = email;
+
+            await _context.SaveChangesAsync();
+            return user;
+        }
+
         public async Task DeleteUserAsync(Guid id)
         {
             var user = await _context.Users.FindAsync(id);
