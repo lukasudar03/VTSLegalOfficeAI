@@ -30,7 +30,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 "/Views/Emails/VerificationEmail.cshtml",
                 new VerificationEmailModel { Username = username, VerificationLink = verificationLink });
 
-            var builder = new BodyBuilder
+            message.Body = new BodyBuilder
             {
                 TextBody =
                     $"Zdravo {username},\n\n" +
@@ -39,10 +39,38 @@ namespace VTSLegalOfficeAI.Services.Implementations
                     $"{verificationLink}\n\n" +
                     "Ako nisi očekivao ovaj email, slobodno ga ignoriši.",
                 HtmlBody = htmlBody,
-            };
+            }.ToMessageBody();
 
-            message.Body = builder.ToMessageBody();
+            await SendAsync(message, cancellationToken);
+        }
 
+        public async Task SendPasswordResetEmailAsync(string toEmail, string username, string resetLink, CancellationToken cancellationToken = default)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(_options.FromName, _options.FromAddress));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Resetovanje lozinke — VTS Legal Office AI";
+
+            var htmlBody = await _viewRenderer.RenderViewToStringAsync(
+                "/Views/Emails/PasswordResetEmail.cshtml",
+                new PasswordResetEmailModel { Username = username, ResetLink = resetLink });
+
+            message.Body = new BodyBuilder
+            {
+                TextBody =
+                    $"Zdravo {username},\n\n" +
+                    "Neko je zatražio resetovanje lozinke za tvoj nalog u VTS Legal Office AI aplikaciji.\n" +
+                    "Klikni na link ispod da postaviš novu lozinku (važi 1 sat):\n\n" +
+                    $"{resetLink}\n\n" +
+                    "Ako nisi tražio/la resetovanje lozinke, slobodno ignoriši ovaj email.",
+                HtmlBody = htmlBody,
+            }.ToMessageBody();
+
+            await SendAsync(message, cancellationToken);
+        }
+
+        private async Task SendAsync(MimeMessage message, CancellationToken cancellationToken)
+        {
             using var client = new SmtpClient
             {
                 // On some networks (notably common on macOS dev machines) the OCSP
