@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using VTSLegalOfficeAI.DTOs.Auth;
+using VTSLegalOfficeAI.Entities;
 using VTSLegalOfficeAI.Options;
 using VTSLegalOfficeAI.Services.Interfaces;
 
@@ -66,7 +67,15 @@ namespace VTSLegalOfficeAI.Controllers
             if (!isAuthenticatedAdmin && !IsAdminKeyValid(adminKey))
                 return Unauthorized(new { Message = "Nemaš dozvolu da kreiraš korisnike." });
 
-            var user = await _userService.CreateUserAsync(request.Username, request.Email, request.Password);
+            User user;
+            try
+            {
+                user = await _userService.CreateUserAsync(request.Username, request.Email, request.Password);
+            }
+            catch (Exception ex)
+            {
+                return Conflict(new { Message = ex.Message });
+            }
 
             try
             {
@@ -77,7 +86,7 @@ namespace VTSLegalOfficeAI.Controllers
             {
                 // Don't leave an unverifiable account behind if the email never went out.
                 await _userService.DeleteUserAsync(user.Id);
-                throw;
+                return StatusCode(502, new { Message = "Korisnik nije kreiran jer slanje email-a nije uspelo. Proveri SMTP podešavanja i pokušaj ponovo." });
             }
 
             return Ok(new UserResponseDto

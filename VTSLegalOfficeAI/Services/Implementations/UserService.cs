@@ -24,11 +24,11 @@ namespace VTSLegalOfficeAI.Services.Implementations
         {
             var usernameExists = await _context.Users.AnyAsync(u => u.Username == username);
             if (usernameExists)
-                throw new Exception("Username is already taken.");
+                throw new Exception("Korisničko ime je već zauzeto.");
 
             var emailExists = await _context.Users.AnyAsync(u => u.Email == email);
             if (emailExists)
-                throw new Exception("Email is already in use.");
+                throw new Exception("Email adresa je već u upotrebi.");
 
             var isFirstUser = !await _context.Users.AnyAsync();
 
