@@ -31,7 +31,12 @@ namespace VTSLegalOfficeAI.Services.Implementations
             };
 
             var response = await client.PostAsJsonAsync("/api/embed", requestBody, cancellationToken);
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                throw new InvalidOperationException(
+                    $"Ollama /api/embed returned {(int)response.StatusCode}: {errorBody}");
+            }
 
             var result = await response.Content.ReadFromJsonAsync<OllamaEmbedResponse>(cancellationToken: cancellationToken);
 

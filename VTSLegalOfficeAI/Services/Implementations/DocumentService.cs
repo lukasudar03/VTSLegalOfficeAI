@@ -96,36 +96,45 @@ namespace VTSLegalOfficeAI.Services.Implementations
             document.Status = "Processing";
             await _context.SaveChangesAsync();
 
-            var extraction = _pdfTextExtractorService.ExtractText(document.FilePath);
-
-            document.ExtractedText = extraction.Text;
-            document.TotalPages = extraction.TotalPages;
-
-            var textChunks = _textChunkingService.ChunkPages(extraction.Pages);
-
-            if (textChunks.Count > 0)
+            try
             {
-                var embeddings = await _embeddingService.GenerateEmbeddingsAsync(
-                    textChunks.Select(c => c.Content).ToList());
+                var extraction = _pdfTextExtractorService.ExtractText(document.FilePath);
 
-                var documentChunks = textChunks.Select((chunk, i) => new DocumentChunk
+                document.ExtractedText = extraction.Text;
+                document.TotalPages = extraction.TotalPages;
+
+                var textChunks = _textChunkingService.ChunkPages(extraction.Pages);
+
+                if (textChunks.Count > 0)
                 {
-                    Id = Guid.NewGuid(),
-                    DocumentId = document.Id,
-                    ChunkIndex = chunk.ChunkIndex,
-                    Content = chunk.Content,
-                    PageFrom = chunk.PageFrom,
-                    PageTo = chunk.PageTo,
-                    Embedding = new Vector(embeddings[i]),
-                    CreatedAt = DateTime.UtcNow
-                });
+                    var embeddings = await _embeddingService.GenerateEmbeddingsAsync(
+                        textChunks.Select(c => c.Content).ToList());
 
-                _context.DocumentChunks.AddRange(documentChunks);
+                    var documentChunks = textChunks.Select((chunk, i) => new DocumentChunk
+                    {
+                        Id = Guid.NewGuid(),
+                        DocumentId = document.Id,
+                        ChunkIndex = chunk.ChunkIndex,
+                        Content = chunk.Content,
+                        PageFrom = chunk.PageFrom,
+                        PageTo = chunk.PageTo,
+                        Embedding = new Vector(embeddings[i]),
+                        CreatedAt = DateTime.UtcNow
+                    });
+
+                    _context.DocumentChunks.AddRange(documentChunks);
+                }
+
+                document.Status = "Processed";
+                await _context.SaveChangesAsync();
             }
-
-            document.Status = "Processed";
-
-            await _context.SaveChangesAsync();
+            catch
+            {
+                // Don't leave the document stuck on "Processing" with no way to retry from the UI.
+                document.Status = "Uploaded";
+                await _context.SaveChangesAsync();
+                throw;
+            }
         }
 
         public async Task DeleteDocumentAsync(Guid documentId, Guid userId)
