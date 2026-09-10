@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using VTSLegalOfficeAI.DTOs.Documents;
 using VTSLegalOfficeAI.Services.Interfaces;
 
@@ -9,10 +9,12 @@ namespace VTSLegalOfficeAI.Controllers
     public class DocumentsController : ControllerBase
     {
         private readonly IDocumentService _documentService;
+        private readonly IQuestionAnsweringService _questionAnsweringService;
 
-        public DocumentsController(IDocumentService documentService)
+        public DocumentsController(IDocumentService documentService, IQuestionAnsweringService questionAnsweringService)
         {
             _documentService = documentService;
+            _questionAnsweringService = questionAnsweringService;
         }
 
         [HttpPost("upload")]
@@ -55,6 +57,25 @@ namespace VTSLegalOfficeAI.Controllers
         {
             await _documentService.ProcessDocumentAsync(id);
             return Ok(new { Message = "Document processed successfully." });
+        }
+
+        [HttpPost("{id:guid}/ask")]
+        public async Task<IActionResult> Ask(Guid id, [FromBody] AskQuestionDto request)
+        {
+            var result = await _questionAnsweringService.AskAsync(id, request.Question);
+
+            return Ok(new AskAnswerResponseDto
+            {
+                Answer = result.Answer,
+                Sources = result.Sources.Select(s => new ChunkSourceDto
+                {
+                    ChunkId = s.ChunkId,
+                    ChunkIndex = s.ChunkIndex,
+                    PageFrom = s.PageFrom,
+                    PageTo = s.PageTo,
+                    Excerpt = s.Content.Length > 300 ? s.Content[..300] + "…" : s.Content
+                }).ToList()
+            });
         }
     }
 }
