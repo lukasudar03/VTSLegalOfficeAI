@@ -20,5 +20,8 @@ namespace VTSLegalOfficeAI.Entities
 
         [JsonIgnore]
         public ICollection<DocumentChunk> Chunks { get; set; } = new List<DocumentChunk>();
+
+        [JsonIgnore]
+        public ICollection<ChatMessage> ChatMessages { get; set; } = new List<ChatMessage>();
     }
 }

@@ -13,6 +13,7 @@ namespace VTSLegalOfficeAI.Data
         public DbSet<User> Users { get; set; }
         public DbSet<Document> Documents { get; set; }
         public DbSet<DocumentChunk> DocumentChunks { get; set; }
+        public DbSet<ChatMessage> ChatMessages { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -79,6 +80,26 @@ namespace VTSLegalOfficeAI.Data
 
                 entity.HasOne(x => x.Document)
                     .WithMany(x => x.Chunks)
+                    .HasForeignKey(x => x.DocumentId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<ChatMessage>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+
+                entity.Property(x => x.Question)
+                    .IsRequired();
+
+                entity.Property(x => x.Answer)
+                    .IsRequired();
+
+                entity.Property(x => x.SourcesJson)
+                    .HasColumnType("jsonb")
+                    .HasDefaultValue("[]");
+
+                entity.HasOne(x => x.Document)
+                    .WithMany(x => x.ChatMessages)
                     .HasForeignKey(x => x.DocumentId)
                     .OnDelete(DeleteBehavior.Cascade);
             });
