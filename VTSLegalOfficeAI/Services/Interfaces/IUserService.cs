@@ -12,5 +12,6 @@ namespace VTSLegalOfficeAI.Services.Interfaces
         Task DeleteUserAsync(Guid id);
         Task<User?> RequestPasswordResetAsync(string email);
         Task<bool> ResetPasswordAsync(string token, string newPassword);
+        Task<bool> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword);
     }
 }
