@@ -137,16 +137,7 @@ namespace VTSLegalOfficeAI.Controllers
         [HttpPost("reset-password")]
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequestDto request)
         {
-            bool success;
-            try
-            {
-                success = await _userService.ResetPasswordAsync(request.Token, request.NewPassword);
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(new { Message = ex.Message });
-            }
-
+            var success = await _userService.ResetPasswordAsync(request.Token, request.NewPassword);
             if (!success)
                 return BadRequest(new { Message = "Link za resetovanje lozinke je nevažeći ili je istekao." });
 
@@ -159,16 +150,7 @@ namespace VTSLegalOfficeAI.Controllers
         {
             var currentUserId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-            bool success;
-            try
-            {
-                success = await _userService.ChangePasswordAsync(currentUserId, request.CurrentPassword, request.NewPassword);
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(new { Message = ex.Message });
-            }
-
+            var success = await _userService.ChangePasswordAsync(currentUserId, request.CurrentPassword, request.NewPassword);
             if (!success)
                 return BadRequest(new { Message = "Trenutna lozinka nije ispravna." });
 
