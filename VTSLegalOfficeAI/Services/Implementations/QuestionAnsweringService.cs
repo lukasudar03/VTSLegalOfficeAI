@@ -52,9 +52,6 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 ? string.Join("\n\n", recentHistory.Select(m => $"Pitanje: {m.Question}\nOdgovor: {m.Answer}"))
                 : string.Empty;
 
-            // Follow-up questions ("taj deo", "to") often don't contain the keywords needed for a good
-            // vector search on their own. Fold the last exchange into the search query so retrieval still
-            // finds the right chunks, without relying on an extra LLM call to rewrite the question.
             var searchQuestion = question;
 
             if (recentHistory.Count > 0)
