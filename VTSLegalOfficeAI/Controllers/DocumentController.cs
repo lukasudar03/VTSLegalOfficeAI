@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using VTSLegalOfficeAI.DTOs.Documents;
@@ -91,8 +92,10 @@ namespace VTSLegalOfficeAI.Controllers
         {
             var result = await _questionAnsweringService.AskAsync(id, CurrentUserId, request.Question);
 
-            return Ok(new AskAnswerResponseDto
+            return Ok(new ChatMessageDto
             {
+                Id = result.Id,
+                Question = request.Question,
                 Answer = result.Answer,
                 Sources = result.Sources.Select(s => new ChunkSourceDto
                 {
@@ -101,8 +104,25 @@ namespace VTSLegalOfficeAI.Controllers
                     PageFrom = s.PageFrom,
                     PageTo = s.PageTo,
                     Excerpt = s.Content.Length > 300 ? s.Content[..300] + "…" : s.Content
-                }).ToList()
+                }).ToList(),
+                CreatedAt = result.CreatedAt
             });
+        }
+
+        [HttpGet("{id:guid}/chat")]
+        public async Task<IActionResult> GetChatHistory(Guid id)
+        {
+            var history = await _questionAnsweringService.GetHistoryAsync(id, CurrentUserId);
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            return Ok(history.Select(m => new ChatMessageDto
+            {
+                Id = m.Id,
+                Question = m.Question,
+                Answer = m.Answer,
+                Sources = JsonSerializer.Deserialize<List<ChunkSourceDto>>(m.SourcesJson, options) ?? new(),
+                CreatedAt = m.CreatedAt
+            }));
         }
     }
 }
