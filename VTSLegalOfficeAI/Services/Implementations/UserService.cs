@@ -9,8 +9,16 @@ namespace VTSLegalOfficeAI.Services.Implementations
 {
     public class UserService : IUserService
     {
+        private const int MinPasswordLength = 8;
+
         private static readonly TimeSpan VerificationTokenLifetime = TimeSpan.FromHours(48);
         private static readonly TimeSpan PasswordResetTokenLifetime = TimeSpan.FromHours(1);
+
+        private static void ValidatePasswordStrength(string password)
+        {
+            if (string.IsNullOrWhiteSpace(password) || password.Length < MinPasswordLength)
+                throw new Exception($"Lozinka mora imati najmanje {MinPasswordLength} karaktera.");
+        }
 
         private readonly ApplicationDbContext _context;
         private readonly IPasswordHasher<User> _passwordHasher;
@@ -30,6 +38,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var emailExists = await _context.Users.AnyAsync(u => u.Email == email);
             if (emailExists)
                 throw new Exception("Email adresa je već u upotrebi.");
+
+            ValidatePasswordStrength(password);
 
             var isFirstUser = !await _context.Users.AnyAsync();
 
@@ -116,6 +126,17 @@ namespace VTSLegalOfficeAI.Services.Implementations
             if (user == null)
                 return;
 
+            var filePaths = await _context.Documents
+                .Where(d => d.UserId == id)
+                .Select(d => d.FilePath)
+                .ToListAsync();
+
+            foreach (var filePath in filePaths)
+            {
+                if (File.Exists(filePath))
+                    File.Delete(filePath);
+            }
+
             _context.Users.Remove(user);
             await _context.SaveChangesAsync();
         }
@@ -143,6 +164,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             if (user == null)
                 return false;
 
+            ValidatePasswordStrength(newPassword);
+
             user.PasswordHash = _passwordHasher.HashPassword(user, newPassword);
             user.PasswordResetToken = null;
             user.PasswordResetTokenExpiresAt = null;
@@ -160,6 +183,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var result = _passwordHasher.VerifyHashedPassword(user, user.PasswordHash, currentPassword);
             if (result == PasswordVerificationResult.Failed)
                 return false;
+
+            ValidatePasswordStrength(newPassword);
 
             user.PasswordHash = _passwordHasher.HashPassword(user, newPassword);
 

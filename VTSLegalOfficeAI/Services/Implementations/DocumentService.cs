@@ -98,6 +98,16 @@ namespace VTSLegalOfficeAI.Services.Implementations
 
             try
             {
+                var existingChunks = await _context.DocumentChunks
+                    .Where(c => c.DocumentId == documentId)
+                    .ToListAsync();
+
+                if (existingChunks.Count > 0)
+                {
+                    _context.DocumentChunks.RemoveRange(existingChunks);
+                    await _context.SaveChangesAsync();
+                }
+
                 var extraction = _pdfTextExtractorService.ExtractText(document.FilePath);
 
                 document.ExtractedText = extraction.Text;
