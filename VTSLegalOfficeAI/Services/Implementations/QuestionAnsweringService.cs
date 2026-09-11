@@ -1,7 +1,9 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
 using VTSLegalOfficeAI.Data;
+using VTSLegalOfficeAI.Entities;
 using VTSLegalOfficeAI.Services.Interfaces;
 using VTSLegalOfficeAI.Services.Models;
 
@@ -69,7 +71,42 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content))
                 .ToList();
 
-            return new AskAnswerResult(answer, sources);
+            var storedSources = sources.Select(s => new
+            {
+                chunkId = s.ChunkId,
+                chunkIndex = s.ChunkIndex,
+                pageFrom = s.PageFrom,
+                pageTo = s.PageTo,
+                excerpt = s.Content.Length > 300 ? s.Content[..300] + "…" : s.Content
+            });
+
+            var chatMessage = new ChatMessage
+            {
+                Id = Guid.NewGuid(),
+                DocumentId = documentId,
+                Question = question,
+                Answer = answer,
+                SourcesJson = JsonSerializer.Serialize(storedSources),
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.ChatMessages.Add(chatMessage);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt);
+        }
+
+        public async Task<List<ChatMessage>> GetHistoryAsync(Guid documentId, Guid userId, CancellationToken cancellationToken = default)
+        {
+            var documentExists = await _context.Documents
+                .AnyAsync(d => d.Id == documentId && d.UserId == userId, cancellationToken);
+            if (!documentExists)
+                throw new Exception("Document not found.");
+
+            return await _context.ChatMessages
+                .Where(m => m.DocumentId == documentId)
+                .OrderBy(m => m.CreatedAt)
+                .ToListAsync(cancellationToken);
         }
     }
 }
