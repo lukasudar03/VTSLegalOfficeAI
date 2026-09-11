@@ -98,9 +98,6 @@ namespace VTSLegalOfficeAI.Services.Implementations
 
             try
             {
-                // Reprocessing an already-processed document (retry, stale tab, direct API
-                // call) must replace its chunks, not add alongside them — otherwise vector
-                // search returns duplicate context for every future question.
                 var existingChunks = await _context.DocumentChunks
                     .Where(c => c.DocumentId == documentId)
                     .ToListAsync();

@@ -126,9 +126,6 @@ namespace VTSLegalOfficeAI.Services.Implementations
             if (user == null)
                 return;
 
-            // The FK cascade deletes the user's Document rows at the DB level, which would
-            // otherwise bypass DocumentService.DeleteDocumentAsync and leave the physical
-            // PDF files behind with no DB row left to find them by afterward.
             var filePaths = await _context.Documents
                 .Where(d => d.UserId == id)
                 .Select(d => d.FilePath)
