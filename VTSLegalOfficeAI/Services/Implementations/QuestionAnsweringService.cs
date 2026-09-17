@@ -52,22 +52,48 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 ? string.Join("\n\n", recentHistory.Select(m => $"Pitanje: {m.Question}\nOdgovor: {m.Answer}"))
                 : string.Empty;
 
-            var searchQuestion = question;
+            List<DocumentChunk> topChunks;
 
             if (recentHistory.Count > 0)
             {
                 var lastExchange = recentHistory[^1];
-                searchQuestion = $"{lastExchange.Question} {lastExchange.Answer} {question}";
+                var searchQuestion = $"{lastExchange.Question} {lastExchange.Answer} {question}";
+
+                var embeddings = await _embeddingService.GenerateEmbeddingsAsync(
+                    new[] { question, searchQuestion }, cancellationToken);
+                var directVector = new Vector(embeddings[0]);
+                var contextualVector = new Vector(embeddings[1]);
+
+                var directChunks = await _context.DocumentChunks
+                    .Where(c => c.DocumentId == documentId)
+                    .OrderBy(c => c.Embedding.CosineDistance(directVector))
+                    .Take(TopK)
+                    .ToListAsync(cancellationToken);
+
+                var contextualChunks = await _context.DocumentChunks
+                    .Where(c => c.DocumentId == documentId)
+                    .OrderBy(c => c.Embedding.CosineDistance(contextualVector))
+                    .Take(TopK)
+                    .ToListAsync(cancellationToken);
+
+                topChunks = directChunks
+                    .Concat(contextualChunks)
+                    .GroupBy(c => c.Id)
+                    .Select(g => g.First())
+                    .Take(TopK + 3)
+                    .ToList();
             }
+            else
+            {
+                var questionEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(new[] { question }, cancellationToken);
+                var questionVector = new Vector(questionEmbeddings[0]);
 
-            var questionEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(new[] { searchQuestion }, cancellationToken);
-            var questionVector = new Vector(questionEmbeddings[0]);
-
-            var topChunks = await _context.DocumentChunks
-                .Where(c => c.DocumentId == documentId)
-                .OrderBy(c => c.Embedding.CosineDistance(questionVector))
-                .Take(TopK)
-                .ToListAsync(cancellationToken);
+                topChunks = await _context.DocumentChunks
+                    .Where(c => c.DocumentId == documentId)
+                    .OrderBy(c => c.Embedding.CosineDistance(questionVector))
+                    .Take(TopK)
+                    .ToListAsync(cancellationToken);
+            }
 
             if (topChunks.Count == 0)
                 throw new Exception("Document has no processed chunks.");
@@ -82,8 +108,9 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 "Ti si asistent koji odgovara na pitanja isključivo na osnovu datog konteksta iz dokumenta. " +
                 "Ako je dat prethodni razgovor, koristi ga samo da razumeš na šta se novo pitanje odnosi (npr. zamenice " +
                 "poput \"to\" ili \"taj deo\"), ali odgovor zasnivaj isključivo na kontekstu iz dokumenta. " +
-                "Ako odgovor ne postoji u kontekstu, jasno reci da informacija nije pronađena u dokumentu. " +
-                "Kada je moguće, referenciraj broj strane iz konteksta.";
+                "Nemoj navoditi brojeve članova, stavova ili tačaka koji se ne pojavljuju doslovno u datom kontekstu. " +
+                "Ako odgovor ne postoji u kontekstu, jasno i kratko reci da informacija nije pronađena u dokumentu, " +
+                "umesto da nagađaš ili izmišljaš sadržaj. Kada je moguće, referenciraj broj strane iz konteksta.";
 
             var historyBlock = recentHistory.Count > 0
                 ? $"Prethodni razgovor:\n{historyText}\n\n"
