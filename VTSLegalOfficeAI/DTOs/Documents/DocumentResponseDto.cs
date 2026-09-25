@@ -8,6 +8,7 @@
         public long FileSizeBytes { get; set; }
         public int? TotalPages { get; set; }
         public string Status { get; set; } = string.Empty;
+        public string DocumentType { get; set; } = string.Empty;
         public DateTime UploadedAt { get; set; }
     }
 }
