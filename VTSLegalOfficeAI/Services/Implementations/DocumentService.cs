@@ -28,7 +28,9 @@ namespace VTSLegalOfficeAI.Services.Implementations
             _embeddingService = embeddingService;
         }
 
-        public async Task<Document> UploadAsync(IFormFile file, Guid userId)
+        private static readonly HashSet<string> AllowedDocumentTypes = new() { "Zakon", "Pravilnik" };
+
+        public async Task<Document> UploadAsync(IFormFile file, Guid userId, string documentType)
         {
             if (file == null || file.Length == 0)
                 throw new Exception("File is required.");
@@ -36,6 +38,9 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
             if (extension != ".pdf")
                 throw new Exception("Only PDF files are allowed.");
+
+            if (!AllowedDocumentTypes.Contains(documentType))
+                throw new Exception("Document type must be either 'Zakon' or 'Pravilnik'.");
 
             var uploadsFolder = Path.Combine(_environment.ContentRootPath, "UploadedFiles");
 
@@ -59,6 +64,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 FilePath = fullPath,
                 FileSizeBytes = file.Length,
                 Status = "Uploaded",
+                DocumentType = documentType,
                 UploadedAt = DateTime.UtcNow
             };
 
