@@ -241,7 +241,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
                     .ToList();
 
                 var bestOfDirect = directRanked.Count > 0 ? directRanked.Min(x => x.Distance) : 1d;
-                return (merged.Select(x => x.Chunk).ToList(), bestOfDirect);
+                var bestOfContextual = contextualRanked.Count > 0 ? contextualRanked.Min(x => x.Distance) : 1d;
+                return (merged.Select(x => x.Chunk).ToList(), Math.Min(bestOfDirect, bestOfContextual));
             }
 
             var questionEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(new[] { question }, cancellationToken);
