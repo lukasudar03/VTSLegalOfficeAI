@@ -247,17 +247,50 @@ namespace VTSLegalOfficeAI.Services.Implementations
             @"POUZDANOST:\s*(NISKA|SREDNJA|VISOKA)\s*-?\s*(.*)\s*$",
             RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.Compiled);
 
+        // qwen3:8b often ignores the requested "POUZDANOST: ..." trailer, so an LLM self-report line
+        // can't be trusted as the sole signal. As a deterministic backstop, any answer that itself says
+        // the information wasn't found in the documents is forced to NISKA regardless of what (if
+        // anything) the model reported — this is the one case the mentor's spec explicitly requires to
+        // surface a "nisam siguran, proveri" warning, so it must not depend on prompt compliance.
+        private static readonly string[] NotFoundPhrases =
+        {
+            "nije pronađen", "nije pronađena", "nije pronađeno", "ne postoji u",
+            "ne sadrži informacij", "ne možemo odgovoriti", "ne može odgovoriti",
+            "nemam informacij", "nije navedeno u", "ne spominje", "ne pominje",
+            "nije definisan", "nije regulisan", "informacija nije"
+        };
+
         private static (string Answer, string Confidence, string ConfidenceNote) ExtractConfidence(string rawAnswer)
         {
             var match = ConfidenceRegex.Match(rawAnswer);
-            if (!match.Success)
-                return (rawAnswer.Trim(), "SREDNJA", string.Empty);
 
-            var confidence = match.Groups[1].Value.ToUpperInvariant();
-            var note = match.Groups[2].Value.Trim();
-            var cleanAnswer = rawAnswer[..match.Index].TrimEnd();
+            string cleanAnswer;
+            string confidence;
+            string note;
 
-            return (cleanAnswer.Length > 0 ? cleanAnswer : rawAnswer.Trim(), confidence, note);
+            if (match.Success)
+            {
+                confidence = match.Groups[1].Value.ToUpperInvariant();
+                note = match.Groups[2].Value.Trim();
+                var stripped = rawAnswer[..match.Index].TrimEnd();
+                cleanAnswer = stripped.Length > 0 ? stripped : rawAnswer.Trim();
+            }
+            else
+            {
+                cleanAnswer = rawAnswer.Trim();
+                confidence = "SREDNJA";
+                note = string.Empty;
+            }
+
+            var lowerAnswer = cleanAnswer.ToLowerInvariant();
+            if (confidence != "NISKA" && NotFoundPhrases.Any(p => lowerAnswer.Contains(p)))
+            {
+                confidence = "NISKA";
+                if (string.IsNullOrEmpty(note))
+                    note = "Odgovor ukazuje da tražena informacija nije pronađena u priloženim dokumentima.";
+            }
+
+            return (cleanAnswer, confidence, note);
         }
 
         private static string BuildHistoryBlock(List<ChatMessage> recentHistory)
