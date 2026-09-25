@@ -7,6 +7,9 @@ namespace VTSLegalOfficeAI.DTOs.Documents
         public int PageFrom { get; set; }
         public int PageTo { get; set; }
         public string Excerpt { get; set; } = string.Empty;
+        public Guid DocumentId { get; set; }
+        public string FileName { get; set; } = string.Empty;
+        public string DocumentType { get; set; } = string.Empty;
     }
 
     public class ChatMessageDto

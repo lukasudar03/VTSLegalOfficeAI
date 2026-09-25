@@ -28,7 +28,7 @@ namespace VTSLegalOfficeAI.Controllers
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> Upload([FromForm] UploadDocumentDto request)
         {
-            var document = await _documentService.UploadAsync(request.File, CurrentUserId);
+            var document = await _documentService.UploadAsync(request.File, CurrentUserId, request.DocumentType);
 
             return Ok(new
             {
@@ -37,6 +37,7 @@ namespace VTSLegalOfficeAI.Controllers
                 document.StoredFileName,
                 document.FileSizeBytes,
                 document.Status,
+                document.DocumentType,
                 document.UploadedAt
             });
         }
@@ -103,7 +104,10 @@ namespace VTSLegalOfficeAI.Controllers
                     ChunkIndex = s.ChunkIndex,
                     PageFrom = s.PageFrom,
                     PageTo = s.PageTo,
-                    Excerpt = s.Content.Length > 300 ? s.Content[..300] + "…" : s.Content
+                    Excerpt = s.Content.Length > 300 ? s.Content[..300] + "…" : s.Content,
+                    DocumentId = s.DocumentId,
+                    FileName = s.FileName,
+                    DocumentType = s.DocumentType
                 }).ToList(),
                 CreatedAt = result.CreatedAt
             });
@@ -113,6 +117,47 @@ namespace VTSLegalOfficeAI.Controllers
         public async Task<IActionResult> GetChatHistory(Guid id)
         {
             var history = await _questionAnsweringService.GetHistoryAsync(id, CurrentUserId);
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            return Ok(history.Select(m => new ChatMessageDto
+            {
+                Id = m.Id,
+                Question = m.Question,
+                Answer = m.Answer,
+                Sources = JsonSerializer.Deserialize<List<ChunkSourceDto>>(m.SourcesJson, options) ?? new(),
+                CreatedAt = m.CreatedAt
+            }));
+        }
+
+        [HttpPost("ask-all")]
+        public async Task<IActionResult> AskAll([FromBody] AskMultiQuestionDto request)
+        {
+            var result = await _questionAnsweringService.AskMultiAsync(CurrentUserId, request.Question, request.DocumentIds);
+
+            return Ok(new ChatMessageDto
+            {
+                Id = result.Id,
+                Question = request.Question,
+                Answer = result.Answer,
+                Sources = result.Sources.Select(s => new ChunkSourceDto
+                {
+                    ChunkId = s.ChunkId,
+                    ChunkIndex = s.ChunkIndex,
+                    PageFrom = s.PageFrom,
+                    PageTo = s.PageTo,
+                    Excerpt = s.Content.Length > 300 ? s.Content[..300] + "…" : s.Content,
+                    DocumentId = s.DocumentId,
+                    FileName = s.FileName,
+                    DocumentType = s.DocumentType
+                }).ToList(),
+                CreatedAt = result.CreatedAt
+            });
+        }
+
+        [HttpGet("chat-all")]
+        public async Task<IActionResult> GetChatHistoryAll()
+        {
+            var history = await _questionAnsweringService.GetMultiHistoryAsync(CurrentUserId);
             var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
             return Ok(history.Select(m => new ChatMessageDto

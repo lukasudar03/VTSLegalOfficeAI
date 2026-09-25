@@ -59,6 +59,11 @@ namespace VTSLegalOfficeAI.Data
                     .IsRequired()
                     .HasMaxLength(50);
 
+                entity.Property(x => x.DocumentType)
+                    .IsRequired()
+                    .HasMaxLength(20)
+                    .HasDefaultValue("Pravilnik");
+
                 entity.Property(x => x.ExtractedText)
                     .HasColumnType("text");
 
@@ -101,6 +106,7 @@ namespace VTSLegalOfficeAI.Data
                 entity.HasOne(x => x.Document)
                     .WithMany(x => x.ChatMessages)
                     .HasForeignKey(x => x.DocumentId)
+                    .IsRequired(false)
                     .OnDelete(DeleteBehavior.Cascade);
             });
         }
