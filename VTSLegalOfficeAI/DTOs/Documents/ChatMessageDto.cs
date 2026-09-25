@@ -18,6 +18,8 @@ namespace VTSLegalOfficeAI.DTOs.Documents
         public string Question { get; set; } = string.Empty;
         public string Answer { get; set; } = string.Empty;
         public List<ChunkSourceDto> Sources { get; set; } = new();
+        public string Confidence { get; set; } = "SREDNJA";
+        public string ConfidenceNote { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
     }
 }

@@ -10,5 +10,11 @@ namespace VTSLegalOfficeAI.Services.Models
         string FileName,
         string DocumentType);
 
-    public record AskAnswerResult(Guid Id, string Answer, List<ChunkSource> Sources, DateTime CreatedAt);
+    public record AskAnswerResult(
+        Guid Id,
+        string Answer,
+        List<ChunkSource> Sources,
+        DateTime CreatedAt,
+        string Confidence,
+        string ConfidenceNote);
 }

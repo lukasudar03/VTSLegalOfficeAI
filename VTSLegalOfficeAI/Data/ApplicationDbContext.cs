@@ -103,6 +103,16 @@ namespace VTSLegalOfficeAI.Data
                     .HasColumnType("jsonb")
                     .HasDefaultValue("[]");
 
+                entity.Property(x => x.Confidence)
+                    .IsRequired()
+                    .HasMaxLength(10)
+                    .HasDefaultValue("SREDNJA");
+
+                entity.Property(x => x.ConfidenceNote)
+                    .IsRequired()
+                    .HasMaxLength(300)
+                    .HasDefaultValue("");
+
                 entity.HasOne(x => x.Document)
                     .WithMany(x => x.ChatMessages)
                     .HasForeignKey(x => x.DocumentId)

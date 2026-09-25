@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
@@ -20,7 +21,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             "poput \"to\" ili \"taj deo\"), ali odgovor zasnivaj isključivo na kontekstu iz dokumenta. " +
             "Nemoj navoditi brojeve članova, stavova ili tačaka koji se ne pojavljuju doslovno u datom kontekstu. " +
             "Ako odgovor ne postoji u kontekstu, jasno i kratko reci da informacija nije pronađena u dokumentu, " +
-            "umesto da nagađaš ili izmišljaš sadržaj. Kada je moguće, referenciraj broj strane iz konteksta.";
+            "umesto da nagađaš ili izmišljaš sadržaj. Kada je moguće, referenciraj broj strane iz konteksta. " +
+            ConfidenceInstruction;
 
         private const string MultiDocumentSystemPrompt =
             "Ti si asistent koji odgovara na pitanja isključivo na osnovu datog konteksta iz priloženih dokumenata. " +
@@ -31,7 +33,16 @@ namespace VTSLegalOfficeAI.Services.Implementations
             "lica. Ako je dat prethodni razgovor, koristi ga samo da razumeš na šta se novo pitanje odnosi, ali " +
             "odgovor zasnivaj isključivo na priloženom kontekstu. Nemoj navoditi brojeve članova, stavova ili tačaka " +
             "koji se ne pojavljuju doslovno u datom kontekstu. Ako odgovor ne postoji u kontekstu, jasno i kratko " +
-            "reci da informacija nije pronađena u priloženim dokumentima, umesto da nagađaš ili izmišljaš sadržaj.";
+            "reci da informacija nije pronađena u priloženim dokumentima, umesto da nagađaš ili izmišljaš sadržaj. " +
+            ConfidenceInstruction;
+
+        private const string ConfidenceInstruction =
+            "Na samom kraju odgovora, u posebnom redu, napiši tačno u ovom formatu i ni na koji način ga ne menjaj: " +
+            "\"POUZDANOST: NIVO - obrazloženje\", gde je NIVO tačno jedna od reči NISKA, SREDNJA ili VISOKA. " +
+            "Proceni NIVO na osnovu toga koliko dati kontekst direktno i nedvosmisleno odgovara na pitanje. " +
+            "Koristi NISKA kada kontekst samo delimično ili posredno pokriva pitanje, kada moraš da nagađaš deo " +
+            "odgovora, ili kada odgovor uopšte nije pronađen. Kada je NIVO nizak, u samom tekstu odgovora (pre ove " +
+            "poslednje linije) jasno napiši da nisi siguran i da to treba proveriti kod nadležnog lica.";
 
         private readonly ApplicationDbContext _context;
         private readonly IEmbeddingService _embeddingService;
@@ -79,7 +90,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var contextText = BuildContextText(topChunks, includeDocumentInfo: false);
             var userPrompt = $"{historyBlock}Kontekst iz dokumenta:\n{contextText}\n\nPitanje: {question}";
 
-            var answer = await _answerGenerationService.GenerateAnswerAsync(SingleDocumentSystemPrompt, userPrompt, cancellationToken);
+            var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(SingleDocumentSystemPrompt, userPrompt, cancellationToken);
+            var (answer, confidence, confidenceNote) = ExtractConfidence(rawAnswer);
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, document.Id, document.FileName, document.DocumentType))
@@ -93,13 +105,15 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 Question = question,
                 Answer = answer,
                 SourcesJson = JsonSerializer.Serialize(BuildStoredSources(sources)),
+                Confidence = confidence,
+                ConfidenceNote = confidenceNote,
                 CreatedAt = DateTime.UtcNow
             };
 
             _context.ChatMessages.Add(chatMessage);
             await _context.SaveChangesAsync(cancellationToken);
 
-            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt);
+            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote);
         }
 
         public async Task<AskAnswerResult> AskMultiAsync(Guid userId, string question, List<Guid>? documentIds, CancellationToken cancellationToken = default)
@@ -139,7 +153,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var contextText = BuildContextText(topChunks, includeDocumentInfo: true);
             var userPrompt = $"{historyBlock}Kontekst iz priloženih dokumenata:\n{contextText}\n\nPitanje: {question}";
 
-            var answer = await _answerGenerationService.GenerateAnswerAsync(MultiDocumentSystemPrompt, userPrompt, cancellationToken);
+            var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(MultiDocumentSystemPrompt, userPrompt, cancellationToken);
+            var (answer, confidence, confidenceNote) = ExtractConfidence(rawAnswer);
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, c.DocumentId, c.Document.FileName, c.Document.DocumentType))
@@ -153,13 +168,15 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 Question = question,
                 Answer = answer,
                 SourcesJson = JsonSerializer.Serialize(BuildStoredSources(sources)),
+                Confidence = confidence,
+                ConfidenceNote = confidenceNote,
                 CreatedAt = DateTime.UtcNow
             };
 
             _context.ChatMessages.Add(chatMessage);
             await _context.SaveChangesAsync(cancellationToken);
 
-            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt);
+            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote);
         }
 
         public async Task<List<ChatMessage>> GetHistoryAsync(Guid documentId, Guid userId, CancellationToken cancellationToken = default)
@@ -224,6 +241,23 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 .OrderBy(c => c.Embedding.CosineDistance(questionVector))
                 .Take(TopK)
                 .ToListAsync(cancellationToken);
+        }
+
+        private static readonly Regex ConfidenceRegex = new(
+            @"POUZDANOST:\s*(NISKA|SREDNJA|VISOKA)\s*-?\s*(.*)\s*$",
+            RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.Compiled);
+
+        private static (string Answer, string Confidence, string ConfidenceNote) ExtractConfidence(string rawAnswer)
+        {
+            var match = ConfidenceRegex.Match(rawAnswer);
+            if (!match.Success)
+                return (rawAnswer.Trim(), "SREDNJA", string.Empty);
+
+            var confidence = match.Groups[1].Value.ToUpperInvariant();
+            var note = match.Groups[2].Value.Trim();
+            var cleanAnswer = rawAnswer[..match.Index].TrimEnd();
+
+            return (cleanAnswer.Length > 0 ? cleanAnswer : rawAnswer.Trim(), confidence, note);
         }
 
         private static string BuildHistoryBlock(List<ChatMessage> recentHistory)

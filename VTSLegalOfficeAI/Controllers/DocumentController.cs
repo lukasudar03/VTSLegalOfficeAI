@@ -109,6 +109,8 @@ namespace VTSLegalOfficeAI.Controllers
                     FileName = s.FileName,
                     DocumentType = s.DocumentType
                 }).ToList(),
+                Confidence = result.Confidence,
+                ConfidenceNote = result.ConfidenceNote,
                 CreatedAt = result.CreatedAt
             });
         }
@@ -125,6 +127,8 @@ namespace VTSLegalOfficeAI.Controllers
                 Question = m.Question,
                 Answer = m.Answer,
                 Sources = JsonSerializer.Deserialize<List<ChunkSourceDto>>(m.SourcesJson, options) ?? new(),
+                Confidence = m.Confidence,
+                ConfidenceNote = m.ConfidenceNote,
                 CreatedAt = m.CreatedAt
             }));
         }
@@ -150,6 +154,8 @@ namespace VTSLegalOfficeAI.Controllers
                     FileName = s.FileName,
                     DocumentType = s.DocumentType
                 }).ToList(),
+                Confidence = result.Confidence,
+                ConfidenceNote = result.ConfidenceNote,
                 CreatedAt = result.CreatedAt
             });
         }
@@ -166,6 +172,8 @@ namespace VTSLegalOfficeAI.Controllers
                 Question = m.Question,
                 Answer = m.Answer,
                 Sources = JsonSerializer.Deserialize<List<ChunkSourceDto>>(m.SourcesJson, options) ?? new(),
+                Confidence = m.Confidence,
+                ConfidenceNote = m.ConfidenceNote,
                 CreatedAt = m.CreatedAt
             }));
         }
