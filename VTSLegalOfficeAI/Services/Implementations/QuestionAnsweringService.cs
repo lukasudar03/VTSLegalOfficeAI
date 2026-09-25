@@ -79,7 +79,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             recentHistory.Reverse();
 
             var baseQuery = _context.DocumentChunks.Where(c => c.DocumentId == documentId);
-            var topChunks = await SearchChunksAsync(baseQuery, question, recentHistory, cancellationToken);
+            var (searchedChunks, bestDistance) = await SearchChunksAsync(baseQuery, question, recentHistory, cancellationToken);
+            var topChunks = searchedChunks;
 
             if (topChunks.Count == 0)
                 throw new Exception("Document has no processed chunks.");
@@ -91,7 +92,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var userPrompt = $"{historyBlock}Kontekst iz dokumenta:\n{contextText}\n\nPitanje: {question}";
 
             var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(SingleDocumentSystemPrompt, userPrompt, cancellationToken);
-            var (answer, confidence, confidenceNote) = ExtractConfidence(rawAnswer);
+            var (answer, confidence, confidenceNote) = ExtractConfidence(rawAnswer, bestDistance);
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, document.Id, document.FileName, document.DocumentType))
@@ -142,7 +143,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             if (documentIds is { Count: > 0 })
                 baseQuery = baseQuery.Where(c => documentIds.Contains(c.DocumentId));
 
-            var topChunks = await SearchChunksAsync(baseQuery, question, recentHistory, cancellationToken);
+            var (searchedChunks, bestDistance) = await SearchChunksAsync(baseQuery, question, recentHistory, cancellationToken);
+            var topChunks = searchedChunks;
 
             if (topChunks.Count == 0)
                 throw new Exception("No processed chunks available to search.");
@@ -154,7 +156,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var userPrompt = $"{historyBlock}Kontekst iz priloženih dokumenata:\n{contextText}\n\nPitanje: {question}";
 
             var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(MultiDocumentSystemPrompt, userPrompt, cancellationToken);
-            var (answer, confidence, confidenceNote) = ExtractConfidence(rawAnswer);
+            var (answer, confidence, confidenceNote) = ExtractConfidence(rawAnswer, bestDistance);
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, c.DocumentId, c.Document.FileName, c.Document.DocumentType))
@@ -200,7 +202,9 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 .ToListAsync(cancellationToken);
         }
 
-        private async Task<List<DocumentChunk>> SearchChunksAsync(
+        private const double LowRelevanceDistanceThreshold = 0.27;
+
+        private async Task<(List<DocumentChunk> Chunks, double BestDistance)> SearchChunksAsync(
             IQueryable<DocumentChunk> baseQuery,
             string question,
             List<ChatMessage> recentHistory,
@@ -216,42 +220,47 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 var directVector = new Vector(embeddings[0]);
                 var contextualVector = new Vector(embeddings[1]);
 
-                var directChunks = await baseQuery
-                    .OrderBy(c => c.Embedding.CosineDistance(directVector))
+                var directRanked = await baseQuery
+                    .Select(c => new { Chunk = c, Distance = c.Embedding.CosineDistance(directVector) })
+                    .OrderBy(x => x.Distance)
                     .Take(TopK)
                     .ToListAsync(cancellationToken);
 
-                var contextualChunks = await baseQuery
-                    .OrderBy(c => c.Embedding.CosineDistance(contextualVector))
+                var contextualRanked = await baseQuery
+                    .Select(c => new { Chunk = c, Distance = c.Embedding.CosineDistance(contextualVector) })
+                    .OrderBy(x => x.Distance)
                     .Take(TopK)
                     .ToListAsync(cancellationToken);
 
-                return directChunks
-                    .Concat(contextualChunks)
-                    .GroupBy(c => c.Id)
-                    .Select(g => g.First())
+                var merged = directRanked
+                    .Concat(contextualRanked)
+                    .GroupBy(x => x.Chunk.Id)
+                    .Select(g => g.OrderBy(x => x.Distance).First())
+                    .OrderBy(x => x.Distance)
                     .Take(TopK + 3)
                     .ToList();
+
+                var bestOfDirect = directRanked.Count > 0 ? directRanked.Min(x => x.Distance) : 1d;
+                return (merged.Select(x => x.Chunk).ToList(), bestOfDirect);
             }
 
             var questionEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(new[] { question }, cancellationToken);
             var questionVector = new Vector(questionEmbeddings[0]);
 
-            return await baseQuery
-                .OrderBy(c => c.Embedding.CosineDistance(questionVector))
+            var ranked = await baseQuery
+                .Select(c => new { Chunk = c, Distance = c.Embedding.CosineDistance(questionVector) })
+                .OrderBy(x => x.Distance)
                 .Take(TopK)
                 .ToListAsync(cancellationToken);
+
+            var best = ranked.Count > 0 ? ranked.Min(x => x.Distance) : 1d;
+            return (ranked.Select(x => x.Chunk).ToList(), best);
         }
 
         private static readonly Regex ConfidenceRegex = new(
             @"POUZDANOST:\s*(NISKA|SREDNJA|VISOKA)\s*-?\s*(.*)\s*$",
             RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.Compiled);
 
-        // qwen3:8b often ignores the requested "POUZDANOST: ..." trailer, so an LLM self-report line
-        // can't be trusted as the sole signal. As a deterministic backstop, any answer that itself says
-        // the information wasn't found in the documents is forced to NISKA regardless of what (if
-        // anything) the model reported — this is the one case the mentor's spec explicitly requires to
-        // surface a "nisam siguran, proveri" warning, so it must not depend on prompt compliance.
         private static readonly string[] NotFoundPhrases =
         {
             "nije pronađen", "nije pronađena", "nije pronađeno", "ne postoji u",
@@ -260,7 +269,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
             "nije definisan", "nije regulisan", "informacija nije"
         };
 
-        private static (string Answer, string Confidence, string ConfidenceNote) ExtractConfidence(string rawAnswer)
+        private static (string Answer, string Confidence, string ConfidenceNote) ExtractConfidence(string rawAnswer, double bestDistance)
         {
             var match = ConfidenceRegex.Match(rawAnswer);
 
@@ -288,6 +297,13 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 confidence = "NISKA";
                 if (string.IsNullOrEmpty(note))
                     note = "Odgovor ukazuje da tražena informacija nije pronađena u priloženim dokumentima.";
+            }
+
+            if (confidence != "NISKA" && bestDistance > LowRelevanceDistanceThreshold)
+            {
+                confidence = "NISKA";
+                if (string.IsNullOrEmpty(note))
+                    note = "Ni najsličniji pronađeni odlomak nije dovoljno blizak pitanju — moguće je da pitanje izlazi izvan sadržaja priloženih dokumenata.";
             }
 
             return (cleanAnswer, confidence, note);
