@@ -79,7 +79,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
             recentHistory.Reverse();
 
             var baseQuery = _context.DocumentChunks.Where(c => c.DocumentId == documentId);
-            var (searchedChunks, bestDistance) = await SearchChunksAsync(baseQuery, question, recentHistory, cancellationToken);
+            var (searchedChunks, bestDistance, directDistance) = await SearchChunksAsync(baseQuery, question, recentHistory, cancellationToken);
             var topChunks = searchedChunks;
 
             if (topChunks.Count == 0)
@@ -92,7 +92,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var userPrompt = $"{historyBlock}Kontekst iz dokumenta:\n{contextText}\n\nPitanje: {question}";
 
             var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(SingleDocumentSystemPrompt, userPrompt, cancellationToken);
-            var (answer, confidence, confidenceNote) = ExtractConfidence(rawAnswer, bestDistance);
+            var (answer, confidence, confidenceNote) = ExtractConfidence(rawAnswer, bestDistance, directDistance);
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, document.Id, document.FileName, document.DocumentType))
@@ -143,7 +143,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
             if (documentIds is { Count: > 0 })
                 baseQuery = baseQuery.Where(c => documentIds.Contains(c.DocumentId));
 
-            var (searchedChunks, bestDistance) = await SearchChunksAsync(baseQuery, question, recentHistory, cancellationToken);
+            var (searchedChunks, bestDistance, directDistance) = await SearchChunksAsync(baseQuery, question, recentHistory, cancellationToken);
             var topChunks = searchedChunks;
 
             if (topChunks.Count == 0)
@@ -156,7 +156,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var userPrompt = $"{historyBlock}Kontekst iz priloženih dokumenata:\n{contextText}\n\nPitanje: {question}";
 
             var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(MultiDocumentSystemPrompt, userPrompt, cancellationToken);
-            var (answer, confidence, confidenceNote) = ExtractConfidence(rawAnswer, bestDistance);
+            var (answer, confidence, confidenceNote) = ExtractConfidence(rawAnswer, bestDistance, directDistance);
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, c.DocumentId, c.Document.FileName, c.Document.DocumentType))
@@ -203,8 +203,9 @@ namespace VTSLegalOfficeAI.Services.Implementations
         }
 
         private const double LowRelevanceDistanceThreshold = 0.27;
+        private const double HighRelevanceDistanceThreshold = 0.20;
 
-        private async Task<(List<DocumentChunk> Chunks, double BestDistance)> SearchChunksAsync(
+        private async Task<(List<DocumentChunk> Chunks, double BestDistance, double DirectDistance)> SearchChunksAsync(
             IQueryable<DocumentChunk> baseQuery,
             string question,
             List<ChatMessage> recentHistory,
@@ -242,7 +243,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
 
                 var bestOfDirect = directRanked.Count > 0 ? directRanked.Min(x => x.Distance) : 1d;
                 var bestOfContextual = contextualRanked.Count > 0 ? contextualRanked.Min(x => x.Distance) : 1d;
-                return (merged.Select(x => x.Chunk).ToList(), Math.Min(bestOfDirect, bestOfContextual));
+                return (merged.Select(x => x.Chunk).ToList(), Math.Min(bestOfDirect, bestOfContextual), bestOfDirect);
             }
 
             var questionEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(new[] { question }, cancellationToken);
@@ -255,7 +256,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 .ToListAsync(cancellationToken);
 
             var best = ranked.Count > 0 ? ranked.Min(x => x.Distance) : 1d;
-            return (ranked.Select(x => x.Chunk).ToList(), best);
+            return (ranked.Select(x => x.Chunk).ToList(), best, best);
         }
 
         private static readonly Regex ConfidenceRegex = new(
@@ -267,10 +268,12 @@ namespace VTSLegalOfficeAI.Services.Implementations
             "nije pronađen", "nije pronađena", "nije pronađeno", "ne postoji u",
             "ne sadrži informacij", "ne možemo odgovoriti", "ne može odgovoriti",
             "nemam informacij", "nije navedeno u", "ne spominje", "ne pominje",
-            "nije definisan", "nije regulisan", "informacija nije"
+            "nije definisan", "nije regulisan", "informacija nije",
+            "nije povezano", "izvan konteksta", "izvan sadržaja",
+            "nisam našao", "nismo našli", "nisam pronašao", "nisam mogao da pronađem"
         };
 
-        private static (string Answer, string Confidence, string ConfidenceNote) ExtractConfidence(string rawAnswer, double bestDistance)
+        private static (string Answer, string Confidence, string ConfidenceNote) ExtractConfidence(string rawAnswer, double bestDistance, double directDistance)
         {
             var match = ConfidenceRegex.Match(rawAnswer);
 
@@ -305,6 +308,12 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 confidence = "NISKA";
                 if (string.IsNullOrEmpty(note))
                     note = "Ni najsličniji pronađeni odlomak nije dovoljno blizak pitanju — moguće je da pitanje izlazi izvan sadržaja priloženih dokumenata.";
+            }
+            else if (confidence == "SREDNJA" && directDistance < HighRelevanceDistanceThreshold)
+            {
+                confidence = "VISOKA";
+                if (string.IsNullOrEmpty(note))
+                    note = "Najsličniji pronađeni odlomak je vrlo blizak pitanju.";
             }
 
             return (cleanAnswer, confidence, note);
