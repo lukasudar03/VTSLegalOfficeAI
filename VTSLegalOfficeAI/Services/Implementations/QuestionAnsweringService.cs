@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
@@ -20,7 +21,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             "poput \"to\" ili \"taj deo\"), ali odgovor zasnivaj isključivo na kontekstu iz dokumenta. " +
             "Nemoj navoditi brojeve članova, stavova ili tačaka koji se ne pojavljuju doslovno u datom kontekstu. " +
             "Ako odgovor ne postoji u kontekstu, jasno i kratko reci da informacija nije pronađena u dokumentu, " +
-            "umesto da nagađaš ili izmišljaš sadržaj. Kada je moguće, referenciraj broj strane iz konteksta.";
+            "umesto da nagađaš ili izmišljaš sadržaj. Kada je moguće, referenciraj broj strane iz konteksta. " +
+            ConfidenceInstruction;
 
         private const string MultiDocumentSystemPrompt =
             "Ti si asistent koji odgovara na pitanja isključivo na osnovu datog konteksta iz priloženih dokumenata. " +
@@ -31,7 +33,16 @@ namespace VTSLegalOfficeAI.Services.Implementations
             "lica. Ako je dat prethodni razgovor, koristi ga samo da razumeš na šta se novo pitanje odnosi, ali " +
             "odgovor zasnivaj isključivo na priloženom kontekstu. Nemoj navoditi brojeve članova, stavova ili tačaka " +
             "koji se ne pojavljuju doslovno u datom kontekstu. Ako odgovor ne postoji u kontekstu, jasno i kratko " +
-            "reci da informacija nije pronađena u priloženim dokumentima, umesto da nagađaš ili izmišljaš sadržaj.";
+            "reci da informacija nije pronađena u priloženim dokumentima, umesto da nagađaš ili izmišljaš sadržaj. " +
+            ConfidenceInstruction;
+
+        private const string ConfidenceInstruction =
+            "Na samom kraju odgovora, u posebnom redu, napiši tačno u ovom formatu i ni na koji način ga ne menjaj: " +
+            "\"POUZDANOST: NIVO - obrazloženje\", gde je NIVO tačno jedna od reči NISKA, SREDNJA ili VISOKA. " +
+            "Proceni NIVO na osnovu toga koliko dati kontekst direktno i nedvosmisleno odgovara na pitanje. " +
+            "Koristi NISKA kada kontekst samo delimično ili posredno pokriva pitanje, kada moraš da nagađaš deo " +
+            "odgovora, ili kada odgovor uopšte nije pronađen. Kada je NIVO nizak, u samom tekstu odgovora (pre ove " +
+            "poslednje linije) jasno napiši da nisi siguran i da to treba proveriti kod nadležnog lica.";
 
         private readonly ApplicationDbContext _context;
         private readonly IEmbeddingService _embeddingService;
@@ -68,7 +79,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             recentHistory.Reverse();
 
             var baseQuery = _context.DocumentChunks.Where(c => c.DocumentId == documentId);
-            var topChunks = await SearchChunksAsync(baseQuery, question, recentHistory, cancellationToken);
+            var (searchedChunks, bestDistance, directDistance) = await SearchChunksAsync(baseQuery, question, recentHistory, cancellationToken);
+            var topChunks = searchedChunks;
 
             if (topChunks.Count == 0)
                 throw new Exception("Document has no processed chunks.");
@@ -79,7 +91,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var contextText = BuildContextText(topChunks, includeDocumentInfo: false);
             var userPrompt = $"{historyBlock}Kontekst iz dokumenta:\n{contextText}\n\nPitanje: {question}";
 
-            var answer = await _answerGenerationService.GenerateAnswerAsync(SingleDocumentSystemPrompt, userPrompt, cancellationToken);
+            var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(SingleDocumentSystemPrompt, userPrompt, cancellationToken);
+            var (answer, confidence, confidenceNote) = ExtractConfidence(rawAnswer, bestDistance, directDistance);
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, document.Id, document.FileName, document.DocumentType))
@@ -93,13 +106,15 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 Question = question,
                 Answer = answer,
                 SourcesJson = JsonSerializer.Serialize(BuildStoredSources(sources)),
+                Confidence = confidence,
+                ConfidenceNote = confidenceNote,
                 CreatedAt = DateTime.UtcNow
             };
 
             _context.ChatMessages.Add(chatMessage);
             await _context.SaveChangesAsync(cancellationToken);
 
-            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt);
+            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote);
         }
 
         public async Task<AskAnswerResult> AskMultiAsync(Guid userId, string question, List<Guid>? documentIds, CancellationToken cancellationToken = default)
@@ -128,7 +143,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             if (documentIds is { Count: > 0 })
                 baseQuery = baseQuery.Where(c => documentIds.Contains(c.DocumentId));
 
-            var topChunks = await SearchChunksAsync(baseQuery, question, recentHistory, cancellationToken);
+            var (searchedChunks, bestDistance, directDistance) = await SearchChunksAsync(baseQuery, question, recentHistory, cancellationToken);
+            var topChunks = searchedChunks;
 
             if (topChunks.Count == 0)
                 throw new Exception("No processed chunks available to search.");
@@ -139,7 +155,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var contextText = BuildContextText(topChunks, includeDocumentInfo: true);
             var userPrompt = $"{historyBlock}Kontekst iz priloženih dokumenata:\n{contextText}\n\nPitanje: {question}";
 
-            var answer = await _answerGenerationService.GenerateAnswerAsync(MultiDocumentSystemPrompt, userPrompt, cancellationToken);
+            var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(MultiDocumentSystemPrompt, userPrompt, cancellationToken);
+            var (answer, confidence, confidenceNote) = ExtractConfidence(rawAnswer, bestDistance, directDistance);
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, c.DocumentId, c.Document.FileName, c.Document.DocumentType))
@@ -153,13 +170,15 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 Question = question,
                 Answer = answer,
                 SourcesJson = JsonSerializer.Serialize(BuildStoredSources(sources)),
+                Confidence = confidence,
+                ConfidenceNote = confidenceNote,
                 CreatedAt = DateTime.UtcNow
             };
 
             _context.ChatMessages.Add(chatMessage);
             await _context.SaveChangesAsync(cancellationToken);
 
-            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt);
+            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote);
         }
 
         public async Task<List<ChatMessage>> GetHistoryAsync(Guid documentId, Guid userId, CancellationToken cancellationToken = default)
@@ -183,7 +202,10 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 .ToListAsync(cancellationToken);
         }
 
-        private async Task<List<DocumentChunk>> SearchChunksAsync(
+        private const double LowRelevanceDistanceThreshold = 0.27;
+        private const double HighRelevanceDistanceThreshold = 0.20;
+
+        private async Task<(List<DocumentChunk> Chunks, double BestDistance, double DirectDistance)> SearchChunksAsync(
             IQueryable<DocumentChunk> baseQuery,
             string question,
             List<ChatMessage> recentHistory,
@@ -199,31 +221,102 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 var directVector = new Vector(embeddings[0]);
                 var contextualVector = new Vector(embeddings[1]);
 
-                var directChunks = await baseQuery
-                    .OrderBy(c => c.Embedding.CosineDistance(directVector))
+                var directRanked = await baseQuery
+                    .Select(c => new { Chunk = c, Distance = c.Embedding.CosineDistance(directVector) })
+                    .OrderBy(x => x.Distance)
                     .Take(TopK)
                     .ToListAsync(cancellationToken);
 
-                var contextualChunks = await baseQuery
-                    .OrderBy(c => c.Embedding.CosineDistance(contextualVector))
+                var contextualRanked = await baseQuery
+                    .Select(c => new { Chunk = c, Distance = c.Embedding.CosineDistance(contextualVector) })
+                    .OrderBy(x => x.Distance)
                     .Take(TopK)
                     .ToListAsync(cancellationToken);
 
-                return directChunks
-                    .Concat(contextualChunks)
-                    .GroupBy(c => c.Id)
-                    .Select(g => g.First())
+                var merged = directRanked
+                    .Concat(contextualRanked)
+                    .GroupBy(x => x.Chunk.Id)
+                    .Select(g => g.OrderBy(x => x.Distance).First())
+                    .OrderBy(x => x.Distance)
                     .Take(TopK + 3)
                     .ToList();
+
+                var bestOfDirect = directRanked.Count > 0 ? directRanked.Min(x => x.Distance) : 1d;
+                var bestOfContextual = contextualRanked.Count > 0 ? contextualRanked.Min(x => x.Distance) : 1d;
+                return (merged.Select(x => x.Chunk).ToList(), Math.Min(bestOfDirect, bestOfContextual), bestOfDirect);
             }
 
             var questionEmbeddings = await _embeddingService.GenerateEmbeddingsAsync(new[] { question }, cancellationToken);
             var questionVector = new Vector(questionEmbeddings[0]);
 
-            return await baseQuery
-                .OrderBy(c => c.Embedding.CosineDistance(questionVector))
+            var ranked = await baseQuery
+                .Select(c => new { Chunk = c, Distance = c.Embedding.CosineDistance(questionVector) })
+                .OrderBy(x => x.Distance)
                 .Take(TopK)
                 .ToListAsync(cancellationToken);
+
+            var best = ranked.Count > 0 ? ranked.Min(x => x.Distance) : 1d;
+            return (ranked.Select(x => x.Chunk).ToList(), best, best);
+        }
+
+        private static readonly Regex ConfidenceRegex = new(
+            @"POUZDANOST:\s*(NISKA|SREDNJA|VISOKA)\s*-?\s*(.*)\s*$",
+            RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.Compiled);
+
+        private static readonly string[] NotFoundPhrases =
+        {
+            "nije pronađen", "nije pronađena", "nije pronađeno", "ne postoji u",
+            "ne sadrži informacij", "ne možemo odgovoriti", "ne može odgovoriti",
+            "nemam informacij", "nije navedeno u", "ne spominje", "ne pominje",
+            "nije definisan", "nije regulisan", "informacija nije",
+            "nije povezano", "izvan konteksta", "izvan sadržaja",
+            "nisam našao", "nismo našli", "nisam pronašao", "nisam mogao da pronađem"
+        };
+
+        private static (string Answer, string Confidence, string ConfidenceNote) ExtractConfidence(string rawAnswer, double bestDistance, double directDistance)
+        {
+            var match = ConfidenceRegex.Match(rawAnswer);
+
+            string cleanAnswer;
+            string confidence;
+            string note;
+
+            if (match.Success)
+            {
+                confidence = match.Groups[1].Value.ToUpperInvariant();
+                note = match.Groups[2].Value.Trim();
+                var stripped = rawAnswer[..match.Index].TrimEnd();
+                cleanAnswer = stripped.Length > 0 ? stripped : rawAnswer.Trim();
+            }
+            else
+            {
+                cleanAnswer = rawAnswer.Trim();
+                confidence = "SREDNJA";
+                note = string.Empty;
+            }
+
+            var lowerAnswer = cleanAnswer.ToLowerInvariant();
+            if (confidence != "NISKA" && NotFoundPhrases.Any(p => lowerAnswer.Contains(p)))
+            {
+                confidence = "NISKA";
+                if (string.IsNullOrEmpty(note))
+                    note = "Odgovor ukazuje da tražena informacija nije pronađena u priloženim dokumentima.";
+            }
+
+            if (confidence != "NISKA" && bestDistance > LowRelevanceDistanceThreshold)
+            {
+                confidence = "NISKA";
+                if (string.IsNullOrEmpty(note))
+                    note = "Ni najsličniji pronađeni odlomak nije dovoljno blizak pitanju — moguće je da pitanje izlazi izvan sadržaja priloženih dokumenata.";
+            }
+            else if (confidence == "SREDNJA" && directDistance < HighRelevanceDistanceThreshold)
+            {
+                confidence = "VISOKA";
+                if (string.IsNullOrEmpty(note))
+                    note = "Najsličniji pronađeni odlomak je vrlo blizak pitanju.";
+            }
+
+            return (cleanAnswer, confidence, note);
         }
 
         private static string BuildHistoryBlock(List<ChatMessage> recentHistory)
