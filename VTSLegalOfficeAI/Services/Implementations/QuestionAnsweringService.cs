@@ -67,7 +67,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
             _answerGenerationService = answerGenerationService;
         }
 
-        public async Task<AskAnswerResult> AskAsync(Guid documentId, Guid userId, string question, DateOnly? deadlineStartDate = null, CancellationToken cancellationToken = default)
+        public async Task<AskAnswerResult> AskAsync(Guid documentId, Guid userId, string question, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(question))
                 throw new Exception("Question is required.");
@@ -103,7 +103,6 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(SingleDocumentSystemPrompt, userPrompt, cancellationToken);
             var (deadlineAmount, deadlineUnit, afterDeadlineAnswer) = ExtractDeadline(rawAnswer);
             var (answer, confidence, confidenceNote) = ExtractConfidence(afterDeadlineAnswer, bestDistance, directDistance);
-            var deadlineDueDate = ComputeDeadlineDueDate(deadlineStartDate, deadlineAmount, deadlineUnit);
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, document.Id, document.FileName, document.DocumentType))
@@ -127,10 +126,10 @@ namespace VTSLegalOfficeAI.Services.Implementations
             _context.ChatMessages.Add(chatMessage);
             await _context.SaveChangesAsync(cancellationToken);
 
-            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote, deadlineAmount, deadlineUnit, deadlineDueDate);
+            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote, deadlineAmount, deadlineUnit);
         }
 
-        public async Task<AskAnswerResult> AskMultiAsync(Guid userId, string question, List<Guid>? documentIds, DateOnly? deadlineStartDate = null, CancellationToken cancellationToken = default)
+        public async Task<AskAnswerResult> AskMultiAsync(Guid userId, string question, List<Guid>? documentIds, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(question))
                 throw new Exception("Question is required.");
@@ -171,7 +170,6 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(MultiDocumentSystemPrompt, userPrompt, cancellationToken);
             var (deadlineAmount, deadlineUnit, afterDeadlineAnswer) = ExtractDeadline(rawAnswer);
             var (answer, confidence, confidenceNote) = ExtractConfidence(afterDeadlineAnswer, bestDistance, directDistance);
-            var deadlineDueDate = ComputeDeadlineDueDate(deadlineStartDate, deadlineAmount, deadlineUnit);
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, c.DocumentId, c.Document.FileName, c.Document.DocumentType))
@@ -195,7 +193,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
             _context.ChatMessages.Add(chatMessage);
             await _context.SaveChangesAsync(cancellationToken);
 
-            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote, deadlineAmount, deadlineUnit, deadlineDueDate);
+            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote, deadlineAmount, deadlineUnit);
         }
 
         public async Task<List<ChatMessage>> GetHistoryAsync(Guid documentId, Guid userId, CancellationToken cancellationToken = default)
@@ -323,20 +321,6 @@ namespace VTSLegalOfficeAI.Services.Implementations
             if (lower.StartsWith("godin"))
                 return "godina";
             return lower;
-        }
-
-        private static DateOnly? ComputeDeadlineDueDate(DateOnly? startDate, int? amount, string? unit)
-        {
-            if (startDate == null || amount == null || unit == null)
-                return null;
-
-            return unit switch
-            {
-                "dana" => startDate.Value.AddDays(amount.Value),
-                "meseci" => startDate.Value.AddMonths(amount.Value),
-                "godina" => startDate.Value.AddYears(amount.Value),
-                _ => null,
-            };
         }
 
         private static readonly string[] NotFoundPhrases =

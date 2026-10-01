@@ -4,6 +4,5 @@ namespace VTSLegalOfficeAI.DTOs.Documents
     {
         public string Question { get; set; } = string.Empty;
         public List<Guid>? DocumentIds { get; set; }
-        public DateOnly? DeadlineStartDate { get; set; }
     }
 }

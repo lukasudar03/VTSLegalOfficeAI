@@ -18,6 +18,5 @@ namespace VTSLegalOfficeAI.Services.Models
         string Confidence,
         string ConfidenceNote,
         int? DeadlineAmount = null,
-        string? DeadlineUnit = null,
-        DateOnly? DeadlineDueDate = null);
+        string? DeadlineUnit = null);
 }

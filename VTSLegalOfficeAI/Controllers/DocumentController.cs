@@ -91,7 +91,7 @@ namespace VTSLegalOfficeAI.Controllers
         [HttpPost("{id:guid}/ask")]
         public async Task<IActionResult> Ask(Guid id, [FromBody] AskQuestionDto request)
         {
-            var result = await _questionAnsweringService.AskAsync(id, CurrentUserId, request.Question, request.DeadlineStartDate);
+            var result = await _questionAnsweringService.AskAsync(id, CurrentUserId, request.Question);
 
             return Ok(new ChatMessageDto
             {
@@ -113,7 +113,6 @@ namespace VTSLegalOfficeAI.Controllers
                 ConfidenceNote = result.ConfidenceNote,
                 DeadlineAmount = result.DeadlineAmount,
                 DeadlineUnit = result.DeadlineUnit,
-                DeadlineDueDate = result.DeadlineDueDate,
                 CreatedAt = result.CreatedAt
             });
         }
@@ -141,7 +140,7 @@ namespace VTSLegalOfficeAI.Controllers
         [HttpPost("ask-all")]
         public async Task<IActionResult> AskAll([FromBody] AskMultiQuestionDto request)
         {
-            var result = await _questionAnsweringService.AskMultiAsync(CurrentUserId, request.Question, request.DocumentIds, request.DeadlineStartDate);
+            var result = await _questionAnsweringService.AskMultiAsync(CurrentUserId, request.Question, request.DocumentIds);
 
             return Ok(new ChatMessageDto
             {
@@ -163,7 +162,6 @@ namespace VTSLegalOfficeAI.Controllers
                 ConfidenceNote = result.ConfidenceNote,
                 DeadlineAmount = result.DeadlineAmount,
                 DeadlineUnit = result.DeadlineUnit,
-                DeadlineDueDate = result.DeadlineDueDate,
                 CreatedAt = result.CreatedAt
             });
         }

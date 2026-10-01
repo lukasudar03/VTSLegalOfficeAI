@@ -22,7 +22,6 @@ namespace VTSLegalOfficeAI.DTOs.Documents
         public string ConfidenceNote { get; set; } = string.Empty;
         public int? DeadlineAmount { get; set; }
         public string? DeadlineUnit { get; set; }
-        public DateOnly? DeadlineDueDate { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 }
