@@ -112,6 +112,8 @@ namespace VTSLegalOfficeAI.Controllers
                 }).ToList(),
                 Confidence = result.Confidence,
                 ConfidenceNote = result.ConfidenceNote,
+                DeadlineAmount = result.DeadlineAmount,
+                DeadlineUnit = result.DeadlineUnit,
                 CreatedAt = result.CreatedAt
             });
         }
@@ -130,6 +132,8 @@ namespace VTSLegalOfficeAI.Controllers
                 Sources = JsonSerializer.Deserialize<List<ChunkSourceDto>>(m.SourcesJson, options) ?? new(),
                 Confidence = m.Confidence,
                 ConfidenceNote = m.ConfidenceNote,
+                DeadlineAmount = m.DeadlineAmount,
+                DeadlineUnit = m.DeadlineUnit,
                 CreatedAt = m.CreatedAt
             }));
         }
@@ -158,6 +162,8 @@ namespace VTSLegalOfficeAI.Controllers
                 }).ToList(),
                 Confidence = result.Confidence,
                 ConfidenceNote = result.ConfidenceNote,
+                DeadlineAmount = result.DeadlineAmount,
+                DeadlineUnit = result.DeadlineUnit,
                 CreatedAt = result.CreatedAt
             });
         }
@@ -176,6 +182,8 @@ namespace VTSLegalOfficeAI.Controllers
                 Sources = JsonSerializer.Deserialize<List<ChunkSourceDto>>(m.SourcesJson, options) ?? new(),
                 Confidence = m.Confidence,
                 ConfidenceNote = m.ConfidenceNote,
+                DeadlineAmount = m.DeadlineAmount,
+                DeadlineUnit = m.DeadlineUnit,
                 CreatedAt = m.CreatedAt
             }));
         }

@@ -113,6 +113,9 @@ namespace VTSLegalOfficeAI.Data
                     .HasMaxLength(300)
                     .HasDefaultValue("");
 
+                entity.Property(x => x.DeadlineUnit)
+                    .HasMaxLength(20);
+
                 entity.HasOne(x => x.Document)
                     .WithMany(x => x.ChatMessages)
                     .HasForeignKey(x => x.DocumentId)

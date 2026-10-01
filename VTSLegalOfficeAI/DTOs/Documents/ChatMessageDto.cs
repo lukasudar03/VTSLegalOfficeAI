@@ -21,6 +21,8 @@ namespace VTSLegalOfficeAI.DTOs.Documents
         public List<ChunkSourceDto> Sources { get; set; } = new();
         public string Confidence { get; set; } = "SREDNJA";
         public string ConfidenceNote { get; set; } = string.Empty;
+        public int? DeadlineAmount { get; set; }
+        public string? DeadlineUnit { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 }

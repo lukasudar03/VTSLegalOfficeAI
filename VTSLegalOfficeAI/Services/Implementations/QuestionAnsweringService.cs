@@ -24,6 +24,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
             "umesto da nagađaš ili izmišljaš sadržaj. Kada je moguće, referenciraj broj strane iz konteksta. " +
             "Kontekst ponekad sadrži i odeljak \"Povezane odredbe\" — to su odredbe na koje se glavni kontekst " +
             "poziva; koristi ih samo ako pomažu da odgovoriš na pitanje. " +
+            DeadlineInstruction +
             ConfidenceInstruction;
 
         private const string MultiDocumentSystemPrompt =
@@ -38,7 +39,15 @@ namespace VTSLegalOfficeAI.Services.Implementations
             "reci da informacija nije pronađena u priloženim dokumentima, umesto da nagađaš ili izmišljaš sadržaj. " +
             "Kontekst ponekad sadrži i odeljak \"Povezane odredbe\" — to su odredbe na koje se glavni kontekst " +
             "poziva; koristi ih samo ako pomažu da odgovoriš na pitanje. " +
+            DeadlineInstruction +
             ConfidenceInstruction;
+
+        private const string DeadlineInstruction =
+            "Ako odredba iz konteksta koja je relevantna za pitanje navodi konkretan rok (vremenski period u " +
+            "danima, mesecima ili godinama), na kraju odgovora, u posebnom redu PRE linije koja počinje sa " +
+            "\"POUZDANOST:\", napiši tačno u ovom formatu: \"ROK: N JEDINICA\" (npr. \"ROK: 15 dana\"), gde je N " +
+            "ceo broj, a JEDINICA jedna od reči dana, meseci ili godina, doslovno onako kako piše u kontekstu. " +
+            "Ako pitanje ne traži ili kontekst ne navodi nijedan konkretan rok, napiši \"ROK: NIJE PRONAĐEN\". ";
 
         private const string ConfidenceInstruction =
             "Na samom kraju odgovora, u posebnom redu, napiši tačno u ovom formatu i ni na koji način ga ne menjaj: " +
@@ -99,7 +108,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var userPrompt = $"{historyBlock}Kontekst iz dokumenta:\n{contextText}{relatedContextText}\n\nPitanje: {question}";
 
             var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(SingleDocumentSystemPrompt, userPrompt, cancellationToken);
-            var (answer, confidence, confidenceNote) = ExtractConfidence(rawAnswer, bestDistance, directDistance);
+            var (deadlineAmount, deadlineUnit, afterDeadlineAnswer) = ExtractDeadline(rawAnswer);
+            var (answer, confidence, confidenceNote) = ExtractConfidence(afterDeadlineAnswer, bestDistance, directDistance);
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, document.Id, document.FileName, document.DocumentType))
@@ -116,13 +126,15 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 SourcesJson = JsonSerializer.Serialize(BuildStoredSources(sources)),
                 Confidence = confidence,
                 ConfidenceNote = confidenceNote,
+                DeadlineAmount = deadlineAmount,
+                DeadlineUnit = deadlineUnit,
                 CreatedAt = DateTime.UtcNow
             };
 
             _context.ChatMessages.Add(chatMessage);
             await _context.SaveChangesAsync(cancellationToken);
 
-            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote);
+            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote, deadlineAmount, deadlineUnit);
         }
 
         public async Task<AskAnswerResult> AskMultiAsync(Guid userId, string question, List<Guid>? documentIds, CancellationToken cancellationToken = default)
@@ -167,7 +179,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var userPrompt = $"{historyBlock}Kontekst iz priloženih dokumenata:\n{contextText}{relatedContextText}\n\nPitanje: {question}";
 
             var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(MultiDocumentSystemPrompt, userPrompt, cancellationToken);
-            var (answer, confidence, confidenceNote) = ExtractConfidence(rawAnswer, bestDistance, directDistance);
+            var (deadlineAmount, deadlineUnit, afterDeadlineAnswer) = ExtractDeadline(rawAnswer);
+            var (answer, confidence, confidenceNote) = ExtractConfidence(afterDeadlineAnswer, bestDistance, directDistance);
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, c.DocumentId, c.Document.FileName, c.Document.DocumentType))
@@ -184,13 +197,15 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 SourcesJson = JsonSerializer.Serialize(BuildStoredSources(sources)),
                 Confidence = confidence,
                 ConfidenceNote = confidenceNote,
+                DeadlineAmount = deadlineAmount,
+                DeadlineUnit = deadlineUnit,
                 CreatedAt = DateTime.UtcNow
             };
 
             _context.ChatMessages.Add(chatMessage);
             await _context.SaveChangesAsync(cancellationToken);
 
-            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote);
+            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote, deadlineAmount, deadlineUnit);
         }
 
         public async Task<List<ChatMessage>> GetHistoryAsync(Guid documentId, Guid userId, CancellationToken cancellationToken = default)
@@ -274,6 +289,51 @@ namespace VTSLegalOfficeAI.Services.Implementations
         private static readonly Regex ConfidenceRegex = new(
             @"POUZDANOST:\s*(NISKA|SREDNJA|VISOKA)\s*-?\s*(.*)\s*$",
             RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.Compiled);
+
+        private static readonly Regex DeadlineRegex = new(
+            @"^[ \t]*ROK:[ \t]*(?:(?<amount>\d+)[ \t]*(?<unit>dana|dan|meseci|mesec|meseca|godina|godine|godinu)|NIJE PRONAĐEN)[ \t]*$",
+            RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.Compiled);
+
+        private static readonly Regex InlineDeadlineRegex = new(
+            @"u\s+roku\s+od\s+(?<amount>\d+)[ \t]*(?:\([^)]*\))?[ \t]*(?<unit>dana|dan|meseci|mesec|meseca|godina|godine|godinu)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static (int? Amount, string? Unit, string Answer) ExtractDeadline(string rawAnswer)
+        {
+            var match = DeadlineRegex.Match(rawAnswer);
+            if (match.Success)
+            {
+                int? amount = match.Groups["amount"].Success ? int.Parse(match.Groups["amount"].Value) : null;
+                string? unit = match.Groups["unit"].Success ? NormalizeDeadlineUnit(match.Groups["unit"].Value) : null;
+
+                var cleaned = DeadlineRegex.Replace(rawAnswer, string.Empty, 1);
+                cleaned = Regex.Replace(cleaned, @"\n{3,}", "\n\n").Trim();
+
+                return (amount, unit, cleaned.Length > 0 ? cleaned : rawAnswer.Trim());
+            }
+
+            var inlineMatch = InlineDeadlineRegex.Match(rawAnswer);
+            if (inlineMatch.Success)
+            {
+                var amount = int.Parse(inlineMatch.Groups["amount"].Value);
+                var unit = NormalizeDeadlineUnit(inlineMatch.Groups["unit"].Value);
+                return (amount, unit, rawAnswer);
+            }
+
+            return (null, null, rawAnswer);
+        }
+
+        private static string NormalizeDeadlineUnit(string raw)
+        {
+            var lower = raw.ToLowerInvariant();
+            if (lower.StartsWith("dan"))
+                return "dana";
+            if (lower.StartsWith("mesec"))
+                return "meseci";
+            if (lower.StartsWith("godin"))
+                return "godina";
+            return lower;
+        }
 
         private static readonly string[] NotFoundPhrases =
         {
