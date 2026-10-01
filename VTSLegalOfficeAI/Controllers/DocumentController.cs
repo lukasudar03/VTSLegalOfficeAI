@@ -107,7 +107,8 @@ namespace VTSLegalOfficeAI.Controllers
                     Excerpt = s.Content.Length > 300 ? s.Content[..300] + "…" : s.Content,
                     DocumentId = s.DocumentId,
                     FileName = s.FileName,
-                    DocumentType = s.DocumentType
+                    DocumentType = s.DocumentType,
+                    IsRelatedProvision = s.IsRelatedProvision
                 }).ToList(),
                 Confidence = result.Confidence,
                 ConfidenceNote = result.ConfidenceNote,
@@ -152,7 +153,8 @@ namespace VTSLegalOfficeAI.Controllers
                     Excerpt = s.Content.Length > 300 ? s.Content[..300] + "…" : s.Content,
                     DocumentId = s.DocumentId,
                     FileName = s.FileName,
-                    DocumentType = s.DocumentType
+                    DocumentType = s.DocumentType,
+                    IsRelatedProvision = s.IsRelatedProvision
                 }).ToList(),
                 Confidence = result.Confidence,
                 ConfidenceNote = result.ConfidenceNote,
