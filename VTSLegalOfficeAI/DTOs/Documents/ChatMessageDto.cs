@@ -10,6 +10,7 @@ namespace VTSLegalOfficeAI.DTOs.Documents
         public Guid DocumentId { get; set; }
         public string FileName { get; set; } = string.Empty;
         public string DocumentType { get; set; } = string.Empty;
+        public bool IsRelatedProvision { get; set; }
     }
 
     public class ChatMessageDto

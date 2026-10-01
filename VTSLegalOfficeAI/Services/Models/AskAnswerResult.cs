@@ -8,7 +8,8 @@ namespace VTSLegalOfficeAI.Services.Models
         string Content,
         Guid DocumentId,
         string FileName,
-        string DocumentType);
+        string DocumentType,
+        bool IsRelatedProvision = false);
 
     public record AskAnswerResult(
         Guid Id,
