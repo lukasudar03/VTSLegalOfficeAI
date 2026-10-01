@@ -91,7 +91,7 @@ namespace VTSLegalOfficeAI.Controllers
         [HttpPost("{id:guid}/ask")]
         public async Task<IActionResult> Ask(Guid id, [FromBody] AskQuestionDto request)
         {
-            var result = await _questionAnsweringService.AskAsync(id, CurrentUserId, request.Question);
+            var result = await _questionAnsweringService.AskAsync(id, CurrentUserId, request.Question, request.DeadlineStartDate);
 
             return Ok(new ChatMessageDto
             {
@@ -111,6 +111,9 @@ namespace VTSLegalOfficeAI.Controllers
                 }).ToList(),
                 Confidence = result.Confidence,
                 ConfidenceNote = result.ConfidenceNote,
+                DeadlineAmount = result.DeadlineAmount,
+                DeadlineUnit = result.DeadlineUnit,
+                DeadlineDueDate = result.DeadlineDueDate,
                 CreatedAt = result.CreatedAt
             });
         }
@@ -129,6 +132,8 @@ namespace VTSLegalOfficeAI.Controllers
                 Sources = JsonSerializer.Deserialize<List<ChunkSourceDto>>(m.SourcesJson, options) ?? new(),
                 Confidence = m.Confidence,
                 ConfidenceNote = m.ConfidenceNote,
+                DeadlineAmount = m.DeadlineAmount,
+                DeadlineUnit = m.DeadlineUnit,
                 CreatedAt = m.CreatedAt
             }));
         }
@@ -136,7 +141,7 @@ namespace VTSLegalOfficeAI.Controllers
         [HttpPost("ask-all")]
         public async Task<IActionResult> AskAll([FromBody] AskMultiQuestionDto request)
         {
-            var result = await _questionAnsweringService.AskMultiAsync(CurrentUserId, request.Question, request.DocumentIds);
+            var result = await _questionAnsweringService.AskMultiAsync(CurrentUserId, request.Question, request.DocumentIds, request.DeadlineStartDate);
 
             return Ok(new ChatMessageDto
             {
@@ -156,6 +161,9 @@ namespace VTSLegalOfficeAI.Controllers
                 }).ToList(),
                 Confidence = result.Confidence,
                 ConfidenceNote = result.ConfidenceNote,
+                DeadlineAmount = result.DeadlineAmount,
+                DeadlineUnit = result.DeadlineUnit,
+                DeadlineDueDate = result.DeadlineDueDate,
                 CreatedAt = result.CreatedAt
             });
         }
@@ -174,6 +182,8 @@ namespace VTSLegalOfficeAI.Controllers
                 Sources = JsonSerializer.Deserialize<List<ChunkSourceDto>>(m.SourcesJson, options) ?? new(),
                 Confidence = m.Confidence,
                 ConfidenceNote = m.ConfidenceNote,
+                DeadlineAmount = m.DeadlineAmount,
+                DeadlineUnit = m.DeadlineUnit,
                 CreatedAt = m.CreatedAt
             }));
         }

@@ -16,5 +16,8 @@ namespace VTSLegalOfficeAI.Services.Models
         List<ChunkSource> Sources,
         DateTime CreatedAt,
         string Confidence,
-        string ConfidenceNote);
+        string ConfidenceNote,
+        int? DeadlineAmount = null,
+        string? DeadlineUnit = null,
+        DateOnly? DeadlineDueDate = null);
 }
