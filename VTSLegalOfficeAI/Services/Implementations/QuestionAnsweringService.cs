@@ -22,6 +22,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             "Nemoj navoditi brojeve članova, stavova ili tačaka koji se ne pojavljuju doslovno u datom kontekstu. " +
             "Ako odgovor ne postoji u kontekstu, jasno i kratko reci da informacija nije pronađena u dokumentu, " +
             "umesto da nagađaš ili izmišljaš sadržaj. Kada je moguće, referenciraj broj strane iz konteksta. " +
+            "Kontekst ponekad sadrži i odeljak \"Povezane odredbe\" — to su odredbe na koje se glavni kontekst " +
+            "poziva; koristi ih samo ako pomažu da odgovoriš na pitanje. " +
             DeadlineInstruction +
             ConfidenceInstruction;
 
@@ -35,6 +37,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
             "odgovor zasnivaj isključivo na priloženom kontekstu. Nemoj navoditi brojeve članova, stavova ili tačaka " +
             "koji se ne pojavljuju doslovno u datom kontekstu. Ako odgovor ne postoji u kontekstu, jasno i kratko " +
             "reci da informacija nije pronađena u priloženim dokumentima, umesto da nagađaš ili izmišljaš sadržaj. " +
+            "Kontekst ponekad sadrži i odeljak \"Povezane odredbe\" — to su odredbe na koje se glavni kontekst " +
+            "poziva; koristi ih samo ako pomažu da odgovoriš na pitanje. " +
             DeadlineInstruction +
             ConfidenceInstruction;
 
@@ -96,9 +100,12 @@ namespace VTSLegalOfficeAI.Services.Implementations
 
             topChunks = topChunks.OrderBy(c => c.ChunkIndex).ToList();
 
+            var relatedProvisions = await FindRelatedProvisionsAsync(topChunks, cancellationToken);
+
             var historyBlock = BuildHistoryBlock(recentHistory);
             var contextText = BuildContextText(topChunks, includeDocumentInfo: false);
-            var userPrompt = $"{historyBlock}Kontekst iz dokumenta:\n{contextText}\n\nPitanje: {question}";
+            var relatedContextText = BuildRelatedContextText(relatedProvisions, includeDocumentInfo: false);
+            var userPrompt = $"{historyBlock}Kontekst iz dokumenta:\n{contextText}{relatedContextText}\n\nPitanje: {question}";
 
             var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(SingleDocumentSystemPrompt, userPrompt, cancellationToken);
             var (deadlineAmount, deadlineUnit, afterDeadlineAnswer) = ExtractDeadline(rawAnswer);
@@ -106,6 +113,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, document.Id, document.FileName, document.DocumentType))
+                .Concat(relatedProvisions.Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, document.Id, document.FileName, document.DocumentType, IsRelatedProvision: true)))
                 .ToList();
 
             var chatMessage = new ChatMessage
@@ -163,9 +171,12 @@ namespace VTSLegalOfficeAI.Services.Implementations
 
             topChunks = topChunks.OrderBy(c => c.Document.FileName).ThenBy(c => c.ChunkIndex).ToList();
 
+            var relatedProvisions = await FindRelatedProvisionsAsync(topChunks, cancellationToken);
+
             var historyBlock = BuildHistoryBlock(recentHistory);
             var contextText = BuildContextText(topChunks, includeDocumentInfo: true);
-            var userPrompt = $"{historyBlock}Kontekst iz priloženih dokumenata:\n{contextText}\n\nPitanje: {question}";
+            var relatedContextText = BuildRelatedContextText(relatedProvisions, includeDocumentInfo: true);
+            var userPrompt = $"{historyBlock}Kontekst iz priloženih dokumenata:\n{contextText}{relatedContextText}\n\nPitanje: {question}";
 
             var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(MultiDocumentSystemPrompt, userPrompt, cancellationToken);
             var (deadlineAmount, deadlineUnit, afterDeadlineAnswer) = ExtractDeadline(rawAnswer);
@@ -173,6 +184,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, c.DocumentId, c.Document.FileName, c.Document.DocumentType))
+                .Concat(relatedProvisions.Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, c.DocumentId, c.Document.FileName, c.Document.DocumentType, IsRelatedProvision: true)))
                 .ToList();
 
             var chatMessage = new ChatMessage
@@ -400,6 +412,72 @@ namespace VTSLegalOfficeAI.Services.Implementations
                     : $"[Strane {c.PageFrom}-{c.PageTo}]\n{c.Content}"));
         }
 
+        private static string BuildRelatedContextText(List<DocumentChunk> relatedProvisions, bool includeDocumentInfo)
+        {
+            if (relatedProvisions.Count == 0)
+                return string.Empty;
+
+            return "\n\nPovezane odredbe (pronađene jer ih gornji odlomci pominju):\n" +
+                BuildContextText(relatedProvisions, includeDocumentInfo);
+        }
+
+        private static readonly Regex ArticleReferenceRegex = new(
+            @"[Čč]lan(?:a|u|om)?\s+(\d{1,4})\b",
+            RegexOptions.Compiled);
+
+        private const int MaxRelatedProvisions = 3;
+
+        private async Task<List<DocumentChunk>> FindRelatedProvisionsAsync(
+            List<DocumentChunk> topChunks,
+            CancellationToken cancellationToken)
+        {
+            var alreadyCoveredIds = topChunks.Select(c => c.Id).ToHashSet();
+            var related = new List<DocumentChunk>();
+
+            foreach (var group in topChunks.GroupBy(c => c.DocumentId))
+            {
+                if (related.Count >= MaxRelatedProvisions)
+                    break;
+
+                var homeNumbers = new HashSet<string>();
+                var mentionedNumbers = new HashSet<string>();
+
+                foreach (var chunk in group)
+                {
+                    var matches = ArticleReferenceRegex.Matches(chunk.Content);
+                    if (matches.Count == 0)
+                        continue;
+
+                    homeNumbers.Add(matches[0].Groups[1].Value);
+                    foreach (Match match in matches)
+                        mentionedNumbers.Add(match.Groups[1].Value);
+                }
+
+                var referencedNumbers = mentionedNumbers.Except(homeNumbers);
+
+                foreach (var number in referencedNumbers)
+                {
+                    if (related.Count >= MaxRelatedProvisions)
+                        break;
+
+                    var needle = $"Član {number} ";
+                    var candidate = await _context.DocumentChunks
+                        .Include(c => c.Document)
+                        .Where(c => c.DocumentId == group.Key && c.Content.Contains(needle))
+                        .OrderBy(c => c.ChunkIndex)
+                        .FirstOrDefaultAsync(cancellationToken);
+
+                    if (candidate != null && !alreadyCoveredIds.Contains(candidate.Id))
+                    {
+                        related.Add(candidate);
+                        alreadyCoveredIds.Add(candidate.Id);
+                    }
+                }
+            }
+
+            return related;
+        }
+
         private static IEnumerable<object> BuildStoredSources(List<ChunkSource> sources)
         {
             return sources.Select(s => new
@@ -411,7 +489,8 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 excerpt = s.Content.Length > 300 ? s.Content[..300] + "…" : s.Content,
                 documentId = s.DocumentId,
                 fileName = s.FileName,
-                documentType = s.DocumentType
+                documentType = s.DocumentType,
+                isRelatedProvision = s.IsRelatedProvision
             });
         }
     }
