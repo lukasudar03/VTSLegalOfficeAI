@@ -14,11 +14,16 @@ namespace VTSLegalOfficeAI.Controllers
     {
         private readonly IDocumentService _documentService;
         private readonly IQuestionAnsweringService _questionAnsweringService;
+        private readonly IDocumentComparisonService _documentComparisonService;
 
-        public DocumentsController(IDocumentService documentService, IQuestionAnsweringService questionAnsweringService)
+        public DocumentsController(
+            IDocumentService documentService,
+            IQuestionAnsweringService questionAnsweringService,
+            IDocumentComparisonService documentComparisonService)
         {
             _documentService = documentService;
             _questionAnsweringService = questionAnsweringService;
+            _documentComparisonService = documentComparisonService;
         }
 
         private Guid CurrentUserId =>
@@ -186,6 +191,40 @@ namespace VTSLegalOfficeAI.Controllers
                 DeadlineUnit = m.DeadlineUnit,
                 CreatedAt = m.CreatedAt
             }));
+        }
+
+        [HttpPost("compare")]
+        public async Task<IActionResult> Compare([FromBody] CompareDocumentsDto request)
+        {
+            var result = await _documentComparisonService.CompareAsync(request.DocumentId1, request.DocumentId2, CurrentUserId);
+
+            return Ok(new DocumentComparisonResultDto
+            {
+                Document1Name = result.Document1Name,
+                Document2Name = result.Document2Name,
+                UnchangedCount = result.UnchangedCount,
+                Added = result.Added.Select(a => new ArticleDiffDto
+                {
+                    ArticleNumber = a.ArticleNumber,
+                    OldText = a.OldText,
+                    NewText = a.NewText,
+                    Summary = a.Summary
+                }).ToList(),
+                Removed = result.Removed.Select(a => new ArticleDiffDto
+                {
+                    ArticleNumber = a.ArticleNumber,
+                    OldText = a.OldText,
+                    NewText = a.NewText,
+                    Summary = a.Summary
+                }).ToList(),
+                Changed = result.Changed.Select(a => new ArticleDiffDto
+                {
+                    ArticleNumber = a.ArticleNumber,
+                    OldText = a.OldText,
+                    NewText = a.NewText,
+                    Summary = a.Summary
+                }).ToList()
+            });
         }
     }
 }
