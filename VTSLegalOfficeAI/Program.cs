@@ -47,6 +47,7 @@ builder.Services.AddScoped<ITextChunkingService, TextChunkingService>();
 builder.Services.AddScoped<IEmbeddingService, OllamaEmbeddingService>();
 builder.Services.AddScoped<IAnswerGenerationService, OllamaAnswerGenerationService>();
 builder.Services.AddScoped<IQuestionAnsweringService, QuestionAnsweringService>();
+builder.Services.AddScoped<IDocumentComparisonService, DocumentComparisonService>();
 
 // Auth
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
