@@ -42,6 +42,33 @@ namespace VTSLegalOfficeAI.Services.Implementations
             DeadlineInstruction +
             ConfidenceInstruction;
 
+        private const string DraftSingleDocumentSystemPrompt =
+            "Ti si asistent koji korisniku pomaže da sastavi NACRT dopisa ili rešenja, zasnovan isključivo na " +
+            "kontekstu iz priloženog dokumenta. Pravni osnov u nacrtu (pozivanje na članove, stavove ili tačke) " +
+            "sme da sadrži samo brojeve koji se doslovno pojavljuju u datom kontekstu — nikad ih ne izmišljaj. " +
+            "Napiši nacrt u uobičajenoj formi akta: naslov, pravni osnov, obrazloženje/sadržaj, i mesto za potpis " +
+            "ovlašćenog lica. Za svaki podatak koji nije naveden u pitanju ili kontekstu (datum, ime, broj predmeta " +
+            "i slično) upiši jasnu oznaku mesta za popunjavanje, npr. \"[UNETI DATUM]\", umesto da ga izmišljaš. " +
+            "Na samom početku i na samom kraju nacrta, u posebnom redu, istakni: \"NACRT — ovo nije pravni savet " +
+            "niti konačna odluka; mora ga pregledati i overiti nadležno/ovlašćeno lice pre upotrebe.\" " +
+            "Kada je moguće, referenciraj broj strane iz konteksta. " +
+            DeadlineInstruction +
+            ConfidenceInstruction;
+
+        private const string DraftMultiDocumentSystemPrompt =
+            "Ti si asistent koji korisniku pomaže da sastavi NACRT dopisa ili rešenja, zasnovan isključivo na " +
+            "kontekstu iz priloženih dokumenata. Kontekst dolazi iz više dokumenata, od kojih je svaki označen " +
+            "nazivom i tipom akta (Zakon ili Pravilnik) — ako koristiš pravni osnov iz pravilnika, proveri da nije " +
+            "u suprotnosti sa zakonom, i ako jeste, jasno to naznači. Pravni osnov u nacrtu sme da sadrži samo " +
+            "brojeve članova, stavova ili tačaka koji se doslovno pojavljuju u datom kontekstu — nikad ih ne " +
+            "izmišljaj. Napiši nacrt u uobičajenoj formi akta: naslov, pravni osnov, obrazloženje/sadržaj, i mesto " +
+            "za potpis ovlašćenog lica. Za svaki podatak koji nije naveden u pitanju ili kontekstu (datum, ime, " +
+            "broj predmeta i slično) upiši jasnu oznaku mesta za popunjavanje, npr. \"[UNETI DATUM]\", umesto da " +
+            "ga izmišljaš. Na samom početku i na samom kraju nacrta, u posebnom redu, istakni: \"NACRT — ovo nije " +
+            "pravni savet niti konačna odluka; mora ga pregledati i overiti nadležno/ovlašćeno lice pre upotrebe.\" " +
+            DeadlineInstruction +
+            ConfidenceInstruction;
+
         private const string DeadlineInstruction =
             "Ako odredba iz konteksta koja je relevantna za pitanje navodi konkretan rok (vremenski period u " +
             "danima, mesecima ili godinama), na kraju odgovora, u posebnom redu PRE linije koja počinje sa " +
@@ -71,7 +98,7 @@ namespace VTSLegalOfficeAI.Services.Implementations
             _answerGenerationService = answerGenerationService;
         }
 
-        public async Task<AskAnswerResult> AskAsync(Guid documentId, Guid userId, string question, CancellationToken cancellationToken = default)
+        public async Task<AskAnswerResult> AskAsync(Guid documentId, Guid userId, string question, bool isDraftRequest = false, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(question))
                 throw new Exception("Question is required.");
@@ -107,9 +134,11 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var relatedContextText = BuildRelatedContextText(relatedProvisions, includeDocumentInfo: false);
             var userPrompt = $"{historyBlock}Kontekst iz dokumenta:\n{contextText}{relatedContextText}\n\nPitanje: {question}";
 
-            var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(SingleDocumentSystemPrompt, userPrompt, cancellationToken);
+            var systemPrompt = isDraftRequest ? DraftSingleDocumentSystemPrompt : SingleDocumentSystemPrompt;
+            var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(systemPrompt, userPrompt, cancellationToken);
             var (deadlineAmount, deadlineUnit, afterDeadlineAnswer) = ExtractDeadline(rawAnswer);
-            var (answer, confidence, confidenceNote) = ExtractConfidence(afterDeadlineAnswer, bestDistance, directDistance);
+            var (extractedAnswer, confidence, confidenceNote) = ExtractConfidence(afterDeadlineAnswer, bestDistance, directDistance);
+            var answer = ApplyDraftDisclaimer(extractedAnswer, isDraftRequest);
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, document.Id, document.FileName, document.DocumentType))
@@ -128,16 +157,17 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 ConfidenceNote = confidenceNote,
                 DeadlineAmount = deadlineAmount,
                 DeadlineUnit = deadlineUnit,
+                IsDraftRequest = isDraftRequest,
                 CreatedAt = DateTime.UtcNow
             };
 
             _context.ChatMessages.Add(chatMessage);
             await _context.SaveChangesAsync(cancellationToken);
 
-            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote, deadlineAmount, deadlineUnit);
+            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote, deadlineAmount, deadlineUnit, isDraftRequest);
         }
 
-        public async Task<AskAnswerResult> AskMultiAsync(Guid userId, string question, List<Guid>? documentIds, CancellationToken cancellationToken = default)
+        public async Task<AskAnswerResult> AskMultiAsync(Guid userId, string question, List<Guid>? documentIds, bool isDraftRequest = false, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(question))
                 throw new Exception("Question is required.");
@@ -178,9 +208,11 @@ namespace VTSLegalOfficeAI.Services.Implementations
             var relatedContextText = BuildRelatedContextText(relatedProvisions, includeDocumentInfo: true);
             var userPrompt = $"{historyBlock}Kontekst iz priloženih dokumenata:\n{contextText}{relatedContextText}\n\nPitanje: {question}";
 
-            var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(MultiDocumentSystemPrompt, userPrompt, cancellationToken);
+            var systemPrompt = isDraftRequest ? DraftMultiDocumentSystemPrompt : MultiDocumentSystemPrompt;
+            var rawAnswer = await _answerGenerationService.GenerateAnswerAsync(systemPrompt, userPrompt, cancellationToken);
             var (deadlineAmount, deadlineUnit, afterDeadlineAnswer) = ExtractDeadline(rawAnswer);
-            var (answer, confidence, confidenceNote) = ExtractConfidence(afterDeadlineAnswer, bestDistance, directDistance);
+            var (extractedAnswer, confidence, confidenceNote) = ExtractConfidence(afterDeadlineAnswer, bestDistance, directDistance);
+            var answer = ApplyDraftDisclaimer(extractedAnswer, isDraftRequest);
 
             var sources = topChunks
                 .Select(c => new ChunkSource(c.Id, c.ChunkIndex, c.PageFrom, c.PageTo, c.Content, c.DocumentId, c.Document.FileName, c.Document.DocumentType))
@@ -199,13 +231,14 @@ namespace VTSLegalOfficeAI.Services.Implementations
                 ConfidenceNote = confidenceNote,
                 DeadlineAmount = deadlineAmount,
                 DeadlineUnit = deadlineUnit,
+                IsDraftRequest = isDraftRequest,
                 CreatedAt = DateTime.UtcNow
             };
 
             _context.ChatMessages.Add(chatMessage);
             await _context.SaveChangesAsync(cancellationToken);
 
-            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote, deadlineAmount, deadlineUnit);
+            return new AskAnswerResult(chatMessage.Id, answer, sources, chatMessage.CreatedAt, confidence, confidenceNote, deadlineAmount, deadlineUnit, isDraftRequest);
         }
 
         public async Task<List<ChatMessage>> GetHistoryAsync(Guid documentId, Guid userId, CancellationToken cancellationToken = default)
@@ -389,6 +422,17 @@ namespace VTSLegalOfficeAI.Services.Implementations
             }
 
             return (cleanAnswer, confidence, note);
+        }
+
+        private const string DraftDisclaimer =
+            "⚠️ NACRT — ovo nije pravni savet niti konačna odluka. Mora ga pregledati i overiti nadležno/ovlašćeno lice pre upotrebe.";
+
+        private static string ApplyDraftDisclaimer(string answer, bool isDraftRequest)
+        {
+            if (!isDraftRequest)
+                return answer;
+
+            return $"{DraftDisclaimer}\n\n{answer}\n\n{DraftDisclaimer}";
         }
 
         private static string BuildHistoryBlock(List<ChatMessage> recentHistory)
